@@ -45,7 +45,9 @@ def _help() -> None:
     print(f"way from cloning the repos to the final builds. Runs on Linux using Docker.")
     print(f"")
     print(f"{c('PREREQUISITES', fg='bright_blue')}")
-    print(f"    - Drop this script and your Dockerfile in the same directory")
+    print(f"    - Drop this script and the Dockerfile")
+    print(f"      (see https://github.com/Embeetle/automate_builds/edit/master/linux-x86_64/Dockerfile)")
+    print(f"      in the same directory")
     print(f"      (e.g., {c('~/embeetle_docker/', fg='bright_yellow')}). It will automatically target")
     print(f"      your home directory for cloning repos and building.")
     print(f"")
@@ -57,8 +59,6 @@ def _help() -> None:
     print(f"          {c('$ newgrp docker', fg='bright_yellow')} (or log out and back in)")
     print(f"      After these two steps, you should be able to run {c('$ docker ps', fg='bright_yellow')} without sudo")
     print(f"      and see no permission errors.")
-    print(f"")
-    print(f"    - Place your Dockerfile in: {c('~/embeetle_docker/Dockerfile', fg='bright_yellow')}")
     print(f"")
     print(f"{c('USAGE', fg='bright_blue')}")
     print(f"    {c('-h', fg='bright_cyan')}, {c('--help', fg='bright_cyan')}         Show this help message and quit.")
@@ -767,4 +767,5 @@ def main() -> int:
     return 0
 
 if __name__ == "__main__":
+
     raise SystemExit(main())
