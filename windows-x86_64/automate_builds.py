@@ -619,8 +619,9 @@ def build_sa() -> None:
     makefile_s = makefile.as_posix()
 
     # Build SA target
+    current_python = sys.executable.replace("\\", "/")
     run_msys2_ucrt64(
-        f"make -C {_sh_quote(sa_bld_s)} -f {_sh_quote(makefile_s)}",
+        f"make -C {_sh_quote(sa_bld_s)} -f {_sh_quote(makefile_s)} PYTHON_CMD={_sh_quote(current_python)}",
         cwd=sa_bld,
         check=True,
     )
