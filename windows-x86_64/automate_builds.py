@@ -146,6 +146,25 @@ def _help() -> None:
     return
 
 
+def check_git_config() -> None:
+    """Check if git autocrlf is set to false to avoid line-ending shifts."""
+    try:
+        out = subprocess.check_output(
+            ["git", "config", "--get", "core.autocrlf"], 
+            text=True
+        ).strip()
+        if out != "false":
+            printc(f"WARNING: Your git core.autocrlf is '{out}'.", fg="bright_yellow")
+            printc("This may cause build test failures due to line-ending shifts.", fg="bright_yellow")
+            printc("Recommended:", fg="bright_yellow")
+            printc("> git config --global core.autocrlf false", fg="bright_cyan")
+            raise SystemExit(1)
+    except subprocess.CalledProcessError:
+        # Key doesn't exist, ignore
+        pass
+    return
+
+
 def _enable_color_printing() -> None:
     """
     Enable ANSI escape processing in Windows console (cmd/PowerShell).
@@ -978,6 +997,7 @@ def main() -> int:
         printc("")
         printc("CLONE REPOS", fg="bright_blue")
         printc("===========", fg="bright_blue")
+        check_git_config()
         clone_or_update_repo(
             repo_url="https://github.com/Embeetle/embeetle.git",
             repo_dir=EMBEETLE_REPO,
