@@ -86,22 +86,22 @@ def _help() -> None:
     print(f"    {c('--install-packages', fg='bright_cyan')} Install all required MSYS2 packages")
     print(f"    ")
     print(f"    {c('--build-llvm', fg='bright_cyan')}       Build LLVM:")
-    print(f"                           sources: {c("<LLVM_REPO>", fg='bright_yellow')}")
-    print(f"                           output:  {c("<BUILD_DIR>/llvm", fg='bright_yellow')}")
+    print(f"                           sources: {c('<LLVM_REPO>', fg='bright_yellow')}")
+    print(f"                           output:  {c('<BUILD_DIR>/llvm', fg='bright_yellow')}")
     print(f"    ")
     print(f"    {c('--build-sa', fg='bright_cyan')}         Build SA:")
-    print(f"                           sources: {c("<SA_REPO>", fg='bright_yellow')}")
-    print(f"                           output:  {c("<BUILD_DIR>/sa", fg='bright_yellow')}")
+    print(f"                           sources: {c('<SA_REPO>', fg='bright_yellow')}")
+    print(f"                           output:  {c('<BUILD_DIR>/sa', fg='bright_yellow')}")
     print(f"    ")
     print(f"    {c('--install-sa', fg='bright_cyan')}       Install SA; copy its build output into Embeetle sources:")
-    print(f"                           copy from: {c("<BUILD_DIR>/sa/sys-windows-x86_64", fg='bright_yellow')}")
-    print(f"                           into:      {c("<EMBEETLE_REPO>/sys", fg='bright_yellow')}")
-    print(f"                       It will *also* copy into {c("<BUILD_DIR>/embeetle/sys", fg='bright_yellow')} if")
+    print(f"                           copy from: {c('<BUILD_DIR>/sa/sys-windows-x86_64', fg='bright_yellow')}")
+    print(f"                           into:      {c('<EMBEETLE_REPO>/sys', fg='bright_yellow')}")
+    print(f"                       It will *also* copy into {c('<BUILD_DIR>/embeetle/sys', fg='bright_yellow')} if")
     print(f"                       that folder exists (Embeetle was built before).")
     print(f"    ")
     print(f"    {c('--build-embeetle', fg='bright_cyan')}   Build Embeetle")
-    print(f"                           sources: {c("<EMBEETLE_REPO>", fg='bright_yellow')}")
-    print(f"                           output:  {c("<BUILD_DIR>/embeetle", fg='bright_yellow')}")
+    print(f"                           sources: {c('<EMBEETLE_REPO>', fg='bright_yellow')}")
+    print(f"                           output:  {c('<BUILD_DIR>/embeetle', fg='bright_yellow')}")
     print(f"                       When building Embeetle, the content of the 'sys' folder")
     print(f"                       in the Embeetle repo is transferred to the Embeetle")
     print(f"                       build.")
@@ -109,12 +109,12 @@ def _help() -> None:
     print(f"                       latest SA build output in your Embeetle build as well.")
     print(f"    ")
     print(f"    {c('--all', fg='bright_cyan')}              Do everything:")
-    print(f"                           {c("--clone", fg='bright_cyan')}")
-    print(f"                           {c("--install-packages", fg='bright_cyan')}")
-    print(f"                           {c("--build-llvm", fg='bright_cyan')}")
-    print(f"                           {c("--build-sa", fg='bright_cyan')}")
-    print(f"                           {c("--install-sa", fg='bright_cyan')}")
-    print(f"                           {c("--build-embeetle", fg='bright_cyan')}")
+    print(f"                           {c('--clone', fg='bright_cyan')}")
+    print(f"                           {c('--install-packages', fg='bright_cyan')}")
+    print(f"                           {c('--build-llvm', fg='bright_cyan')}")
+    print(f"                           {c('--build-sa', fg='bright_cyan')}")
+    print(f"                           {c('--install-sa', fg='bright_cyan')}")
+    print(f"                           {c('--build-embeetle', fg='bright_cyan')}")
     print(f"    ")
     print(f"    ")
     print(f"{c('RESULTS', fg='bright_blue')}")
@@ -143,25 +143,6 @@ def _help() -> None:
     print(f"            Navigate to the embeetle build at {c('<MSYS_HOME>/bld/embeetle', fg='bright_yellow')} and")
     print(f"            launch {c('embeetle.exe', fg='bright_yellow')}.")
     print(f"    ")
-    return
-
-
-def check_git_config() -> None:
-    """Check if git autocrlf is set to false to avoid line-ending shifts."""
-    try:
-        out = subprocess.check_output(
-            ["git", "config", "--get", "core.autocrlf"], 
-            text=True
-        ).strip()
-        if out != "false":
-            printc(f"WARNING: Your git core.autocrlf is '{out}'.", fg="bright_yellow")
-            printc("This may cause build test failures due to line-ending shifts.", fg="bright_yellow")
-            printc("Recommended:", fg="bright_yellow")
-            printc("> git config --global core.autocrlf false", fg="bright_cyan")
-            raise SystemExit(1)
-    except subprocess.CalledProcessError:
-        # Key doesn't exist, ignore
-        pass
     return
 
 
@@ -381,6 +362,35 @@ def run_msys2_ucrt64_capture(
     return proc.returncode, (proc.stdout or "")
 
 
+def fix_git_config(repo_dir: Path) -> None:
+    """
+    Ensures the local repo config is set to autocrlf=false.
+    If it was wrong, it refreshes the index to fix line endings.
+    """
+    if not repo_dir.exists():
+        return
+
+    # Check the LOCAL config (not global)
+    try:
+        current_val = subprocess.check_output(
+            ["git", "-C", str(repo_dir), "config", "--local", "core.autocrlf"],
+            text=True, stderr=subprocess.DEVNULL
+        ).strip()
+    except subprocess.CalledProcessError:
+        current_val = None
+
+    if current_val != "false":
+        print(f"==> Fixing line endings for existing repo: {repo_dir.name}...")
+        # 1. Set local config
+        run_native(["git", "-C", str(repo_dir), "config", "core.autocrlf", "false"])
+        
+        # 2. Refresh the index to recognize the change
+        # This is the 'magic' to fix already-checked-out files
+        run_native(["git", "-C", str(repo_dir), "add", "--renormalize", "."], check=False)
+        printc(f"    Line endings normalized to LF in {repo_dir.name}", fg="green")
+    return
+
+
 def clone_or_update_repo(
     repo_url: str,
     repo_dir: Path,
@@ -398,8 +408,12 @@ def clone_or_update_repo(
     # Clone
     if not repo_dir.exists():
         print(f"\n==> Cloning {repo_dir}...")
-        run_native(["git", "clone", repo_url, str(repo_dir)], cwd=repo_parent_dir)
+        # Add the -c flag here to force LF endings for this specific repo
+        run_native(["git", "clone", "-c", "core.autocrlf=false", repo_url, str(repo_dir)], cwd=repo_parent_dir)
         return
+
+    # Fix existing repo if it has wrong line-ending config
+    fix_git_config(repo_dir)
 
     # Update (fast-forward only avoids accidental merge commits)
     print(f"\n==> Updating {repo_dir}...")
@@ -997,7 +1011,6 @@ def main() -> int:
         printc("")
         printc("CLONE REPOS", fg="bright_blue")
         printc("===========", fg="bright_blue")
-        check_git_config()
         clone_or_update_repo(
             repo_url="https://github.com/Embeetle/embeetle.git",
             repo_dir=EMBEETLE_REPO,
