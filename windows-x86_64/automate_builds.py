@@ -51,11 +51,10 @@ def _help() -> None:
     print(f"    ")
     print(f"        - Install MSYS2 (preferrably at {c('C:/msys64', fg='bright_yellow')})")
     print(f"    ")
-    print(f"        - Drop this script in your MSYS2 home directory,")
-    print(f"          eg. {c('C:/msys64/home/krist/', fg='bright_yellow')}")
-    print(f"    ")
-    print(f"        - Make sure you have access to the Embeetle GitHub repos (no action")
-    print(f"          needed here once they're public)")
+    print(f"        - You can place this script anywhere. It doesn't rely on where the script")
+    print(f"          itself is located. Instead, it actively queries MSYS2 to find the home")
+    print(f"          directory (the ~ path in MSYS2) and uses that as the default location")
+    print(f"          for cloning the repos and building.")
     print(f"    ")
     print(f"    {c('WARNING: Do not run this tool in an MSYS shell!', fg='bright_red')} Instead, run it from the")
     print(f"    native CMD shell. The tool launches MSYS shells automatically and redirects")
@@ -140,9 +139,9 @@ def _help() -> None:
     print(f"            Open a native(!) Windows CMD shell.")
     print(f"            Navigate to the embeetle repo at {c('<MSYS_HOME>/embeetle/beetle_core', fg='bright_yellow')} and")
     print(f"            launch Embeetle using the generated virtual environment:")
-    print(f"                {c('> source <MSYS2_HOME>/bld/embeetle_venv/Scripts/activate', fg='bright_yellow')}")
-    print(f"                {c('> cd <MSYS2_HOME>/embeetle/beetle_core', fg='bright_yellow')}")
-    print(f"                {c('> python embeetle.py', fg='bright_yellow')}")
+    print(f"                {c('>', fg='bright_green')} {c('<MSYS2_HOME>/bld/embeetle_venv/Scripts/activate.bat', fg='bright_yellow')}")
+    print(f"                {c('(embeetle_venv) >', fg='bright_green')} {c(' cd <MSYS2_HOME>/embeetle/beetle_core', fg='bright_yellow')}")
+    print(f"                {c('(embeetle_venv) >', fg='bright_green')} {c(' python embeetle.py', fg='bright_yellow')}")
     print(f"    ")
     print(f"        {c('..from the executable:', fg='bright_magenta')}")
     print(f"            Navigate to the embeetle build at {c('<MSYS_HOME>/bld/embeetle', fg='bright_yellow')} and")
@@ -922,6 +921,25 @@ def build_embeetle() -> None:
 
 
 def main() -> int:
+    # CHECK PYTHON VERSION
+    # ====================
+    if sys.version_info < (3, 12):
+        printc(
+            f"\n[WARNING] You are running Python {sys.version_info.major}.{sys.version_info.minor}.",
+            fg="bright_yellow", bold=True
+        )
+        printc(
+            "Embeetle is tested on Python 3.14, and Python 3.12 is known to work.\n"
+            "Using an older version is risky and may cause unexpected build or runtime errors.\n",
+            fg="bright_yellow"
+        )
+        try:
+            input("Press Enter to continue at your own risk, or Ctrl+C to abort... ")
+        except KeyboardInterrupt:
+            printc("\nBuild aborted by user.", fg="bright_red")
+            sys.exit(1)
+        print()  # Add an empty line for visual spacing
+
     # PARSE ARGUMENTS
     # ===============
     parser = argparse.ArgumentParser(
