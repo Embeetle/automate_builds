@@ -107,6 +107,9 @@ def _help() -> None:
     print(f"                       build.")
     print(f"                       So if you did a {c('--install-sa', fg='bright_cyan')} command earlier you have the")
     print(f"                       latest SA build output in your Embeetle build as well.")
+    print(f"                       {c('Note:', fg='bright_magenta')} This step automatically creates a Python virtual")
+    print(f"                       environment at {c('<BUILD_DIR>/embeetle_venv', fg='bright_yellow')} and safely")
+    print(f"                       installs all required dependencies in isolation.")
     print(f"    ")
     print(f"    {c('--all', fg='bright_cyan')}              Do everything:")
     print(f"                           {c('--clone', fg='bright_cyan')}")
@@ -124,6 +127,7 @@ def _help() -> None:
     print(f"        {c('<MSYS2_HOME>', fg='bright_yellow')}")
     print(f"              ├─ bld")
     print(f"              │   ├─ embeetle")
+    print(f"              │   ├─ embeetle_venv  {c('<-- Isolated Python environment', fg='bright_black')}")
     print(f"              │   ├─ llvm")
     print(f"              │   └─ sa")
     print(f"              ├─ embeetle  ")
@@ -133,10 +137,11 @@ def _help() -> None:
     print(f"    To run Embeetle..")
     print(f"    ")
     print(f"        {c('..from sources:', fg='bright_magenta')}")
-    print(f"            Navigate to the embeetle repo at {c('<MSYS_HOME>/embeetle', fg='bright_yellow')} and launch")
-    print(f"            Embeetle there from the native(!) Windows CMD shell:")
-    print(f"                {c('> pip install -r requirements.txt', fg='bright_yellow')}")
-    print(f"                {c('> cd beetle_core', fg='bright_yellow')}")
+    print(f"            Open a native(!) Windows CMD shell.")
+    print(f"            Navigate to the embeetle repo at {c('<MSYS_HOME>/embeetle/beetle_core', fg='bright_yellow')} and")
+    print(f"            launch Embeetle using the generated virtual environment:")
+    print(f"                {c('> source <MSYS2_HOME>/bld/embeetle_venv/Scripts/activate', fg='bright_yellow')}")
+    print(f"                {c('> cd <MSYS2_HOME>/embeetle/beetle_core', fg='bright_yellow')}")
     print(f"                {c('> python embeetle.py', fg='bright_yellow')}")
     print(f"    ")
     print(f"        {c('..from the executable:', fg='bright_magenta')}")
@@ -869,15 +874,41 @@ def build_embeetle() -> None:
     assert BUILD_DIR is not None
 
     embeetle_bld = BUILD_DIR / "embeetle"
+    venv_dir = BUILD_DIR / "embeetle_venv"
 
     # Create build dirs
     _ensure_dir(BUILD_DIR)
     _ensure_dir(embeetle_bld)
 
-    # Build
+    # 1. Create the virtual environment if it doesn't exist
+    if not venv_dir.exists():
+        print(f"\n==> Creating Python virtual environment at '{venv_dir}'...")
+        # We use sys.executable to ensure the venv uses the exact same Python 
+        # version that is currently running this automation script.
+        run_native([sys.executable, "-m", "venv", str(venv_dir)])
+
+    # 2. Path to the Python executable inside the venv (Windows specific)
+    venv_python = venv_dir / "Scripts" / "python.exe"
+    if not venv_python.exists():
+        raise RuntimeError(f"Failed to find venv Python at '{venv_python}'")
+
+    # 3. Install requirements into the venv
+    req_file = EMBEETLE_REPO / "requirements.txt"
+    if req_file.exists():
+        print(f"\n==> Installing/Updating pip requirements from '{req_file}'...")
+        run_native(
+            [str(venv_python), "-m", "pip", "install", "-r", str(req_file)],
+            cwd=EMBEETLE_REPO,
+            check=True,
+        )
+    else:
+        printc(f"\n[WARN] No requirements.txt found at '{req_file}'. Skipping pip install.", fg="bright_yellow")
+
+    # 4. Build Embeetle using the venv's Python
+    print(f"\n==> Running Embeetle build.py...")
     run_native(
         [
-            "python",
+            str(venv_python),
             "build.py",
             "--repo",
             str(EMBEETLE_REPO).replace("\\", "/"),
@@ -887,6 +918,7 @@ def build_embeetle() -> None:
         cwd=EMBEETLE_REPO,
         check=True,
     )
+    return
 
 
 def main() -> int:
