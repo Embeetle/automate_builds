@@ -760,6 +760,19 @@ def build_embeetle(version_override: Optional[str] = None) -> None:
         printc(f"\n==> Making launcher executable: {embeetle_launcher}", fg="bright_blue")
         # This is the Python equivalent of 'chmod +x'
         embeetle_launcher.chmod(embeetle_launcher.stat().st_mode | 0o111)
+
+    # 5. Make the sys directory contents executable
+    sys_dir = embeetle_bld / "sys"
+    if sys_dir.exists():
+        printc(f"\n==> Fixing executable permissions in '{sys_dir}'...", fg="bright_blue")
+        for file_path in sys_dir.rglob("*"):
+            if file_path.is_file():
+                try:
+                    # Adds executable permission for Owner, Group, and Others (chmod +x)
+                    file_path.chmod(file_path.stat().st_mode | 0o111)
+                except Exception as e:
+                    printc(f"    [WARN] Could not change permissions for {file_path.name}: {e}", fg="bright_yellow")
+                    
     return
 
 
