@@ -21,11 +21,13 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from datetime import datetime
 from typing import Iterable, Optional, Tuple
 from typing import *
 import hashlib
 import fnmatch
 import argparse
+import re
 
 MSYS2_ROOT: Path = Path("C:/msys64")
 MSYS2_HOME: Optional[Path] = None     # eg. 'C:/msys64/home/krist'
@@ -134,6 +136,10 @@ def _help() -> None:
     print(f"                           {c('--build-sa', fg='bright_cyan')}")
     print(f"                           {c('--install-sa', fg='bright_cyan')}")
     print(f"                           {c('--build-embeetle', fg='bright_cyan')}")
+    print(f"    ")
+    print(f"    {c('--version', fg='bright_cyan')} {c('VERSION_NR', fg='bright_yellow')}       Set a specific version (e.g. 2.1.0).")
+    print(f"                               If omitted, the build tool increments the")
+    print(f"                               lowest number in 'version.txt' by 1.")
     print(f"    ")
     print(f"    ")
     print(f"{c('RESULTS', fg='bright_blue')}")
@@ -881,7 +887,108 @@ def install_sa_sys_into_embeetle_sys() -> None:
     return
 
 
-def build_embeetle() -> None:
+def get_venv_info(venv_python: Path) -> Tuple[str, str]:
+    """
+    Query the venv for its Python version string and pip freeze list.
+    """
+    if not venv_python.exists():
+        return "N/A", "N/A"
+    try:
+        py_ver = subprocess.check_output(
+            [str(venv_python), "-c", "import sys; print(sys.version)"], text=True
+        ).strip()
+        pip_freeze = subprocess.check_output(
+            [str(venv_python), "-m", "pip", "freeze"], text=True
+        ).strip()
+        return py_ver, pip_freeze
+    except Exception as e:
+        printc(f"    [ERROR] Could not query venv: {e}", fg="bright_red")
+        return "Unknown", "Unknown"
+
+
+def update_version_file(
+    repo_dir: Path, 
+    build_dir: Path, 
+    venv_python: Optional[Path] = None, 
+    requested_version: Optional[str] = None
+) -> None:
+    """
+    Updates version.txt in the repo and mirrors it to the build directory.
+    Includes current Python version and installed packages from the venv.
+    """
+    version_file_rel = Path("beetle_core/version.txt")
+    repo_version_path = repo_dir / version_file_rel
+    build_version_path = build_dir / version_file_rel
+
+    if not repo_version_path.exists():
+        printc(
+            str(
+                f"[WARN] Version file not found at {repo_version_path}. "
+                f"Skipping version update."
+            ),
+            fg="bright_yellow",
+        )
+        return
+
+    print(f"==> Updating version file: {repo_version_path}")
+    
+    with open(repo_version_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # 1. Update Date
+    today_str = datetime.now().strftime("%d %b %Y")
+    content = re.sub(r"(date:\s*).*(\n?)", rf"\1{today_str}\2", content)
+
+    # 2. Update Version
+    def increment_version(match):
+        current_v = match.group(2)
+        if requested_version:
+            return f"{match.group(1)}{requested_version}{match.group(3)}"
+        
+        # Split x.y.z and increment z
+        parts = current_v.split('.')
+        if len(parts) >= 1:
+            try:
+                parts[-1] = str(int(parts[-1]) + 1)
+            except ValueError:
+                pass # If last part isn't an int, leave it alone
+        new_v = ".".join(parts)
+        print(f"    Incrementing version: {current_v} -> {new_v}")
+        return f"{match.group(1)}{new_v}{match.group(3)}"
+
+    # Regex captures: 1(prefix) 2(version number) 3(newline/suffix)
+    content = re.sub(r"(version:\s*)([0-9.]+)(\s*\n?)", increment_version, content)
+
+    # 3. Update Python Version and Packages
+    if venv_python and venv_python.exists():
+        py_ver, pkgs = get_venv_info(venv_python)
+        py_sec = f"Python Version\n==============\nversion: {py_ver}\n"
+        pkg_sec = f"Installed Packages\n==================\n{pkgs}"
+        
+        # Replace sections using DOTALL to catch multi-line content
+        content = re.sub(r"Python Version\n==+.*?(?=\n\n|\Z)", py_sec.strip(), content, flags=re.DOTALL)
+        content = re.sub(r"Installed Packages\n==+.*?(?=\Z)", pkg_sec.strip(), content, flags=re.DOTALL)
+
+    # Save to repo
+    with open(repo_version_path, "w", encoding="utf-8") as f:
+        f.write(content.strip() + "\n")
+
+    # 4. Mirror to build dir
+    if build_version_path.parent.exists():
+        print(f"    Mirroring to build output: '{build_version_path}'")
+        shutil.copy2(repo_version_path, build_version_path)
+    else:
+        printc(
+            str(
+                f"    [INFO] Build folder '{build_version_path.parent}' not "
+                f"found yet. Mirroring skipped."
+            ),
+            fg="bright_black",
+        )
+    return
+
+
+def build_embeetle(version_override: Optional[str] = None) -> None:
     """
     Build Embeetle
     """
@@ -920,6 +1027,10 @@ def build_embeetle() -> None:
     else:
         printc(f"\n[WARN] No requirements.txt found at '{req_file}'. Skipping pip install.", fg="bright_yellow")
 
+    # --- NEW STEP: Update version file before building ---
+    # Moved here so it runs after pip packages are fully installed into the venv.
+    update_version_file(EMBEETLE_REPO, embeetle_bld, venv_python, version_override)
+
     # 4. Build Embeetle using the venv's Python
     print(f"\n==> Running Embeetle build.py...")
     run_native(
@@ -934,6 +1045,8 @@ def build_embeetle() -> None:
         cwd=EMBEETLE_REPO,
         check=True,
     )
+    # Mirroring AGAIN after build just in case build.py overwrote the version file
+    update_version_file(EMBEETLE_REPO, embeetle_bld, venv_python, version_override)
     return
 
 
@@ -1019,6 +1132,11 @@ def main() -> int:
     parser.add_argument(
         "--all",
         action="store_true",
+    )
+    parser.add_argument(
+        "--version",
+        required=False,
+        default=None,
     )
     args = parser.parse_args()
     if args.help:
@@ -1154,7 +1272,7 @@ def main() -> int:
         printc("")
         printc("BUILD EMBEETLE", fg="bright_blue")
         printc("==============", fg="bright_blue")
-        build_embeetle()
+        build_embeetle(version_override=args.version)
         print(f"\nEmbeetle built at '{BUILD_DIR / 'embeetle'}'")
     
     # DO NOTHING

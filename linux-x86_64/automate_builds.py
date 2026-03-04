@@ -91,6 +91,9 @@ def _help() -> None:
     print(f"    {c('--build-llvm', fg='bright_cyan')}       Build LLVM inside Docker.")
     print(f"    {c('--build-sa', fg='bright_cyan')}         Build SA inside Docker.")
     print(f"    {c('--install-sa', fg='bright_cyan')}       Copy SA build output into Embeetle sources.")
+    print(f"    {c('--version', fg='bright_cyan')} {c('VERSION_NR', fg='bright_yellow')}  Specific version number (e.g. 2.0.1).")
+    print(f"                               If omitted, the build tool increments the")
+    print(f"                               lowest digit in version.txt by 1.")
     print(f"    {c('--build-embeetle', fg='bright_cyan')}   Build Embeetle inside Docker.")
     print(f"    {c('--all', fg='bright_cyan')}              Do everything (except installing Docker).")
     print(f"")
@@ -477,6 +480,77 @@ def install_sa_sys_into_embeetle_sys() -> None:
     return
 
 
+# ==============================================================================
+# VERSION UPDATING SCRIPT FOR DOCKER
+# ==============================================================================
+UPDATE_VERSION_SCRIPT = r"""
+import sys
+import re
+import shutil
+import subprocess
+import argparse
+from pathlib import Path
+from datetime import datetime
+
+def get_venv_info():
+    py_ver = sys.version.replace('\n', ' ')
+    try:
+        pip_freeze = subprocess.check_output([sys.executable, "-m", "pip", "freeze"], text=True).strip()
+    except Exception as e:
+        pip_freeze = f"Error running pip freeze: {e}"
+    return py_ver, pip_freeze
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--version", default=None)
+    args = parser.parse_args()
+
+    repo_dir = Path("/root/embeetle")
+    build_dir = Path("/root/bld/embeetle")
+    requested_version = args.version
+    
+    rel_path = Path("beetle_core/version.txt")
+    src = repo_dir / rel_path
+    dst = build_dir / rel_path
+
+    if not src.exists():
+        print(f"[WARN] No version file at {src}")
+        return
+
+    print(f"==> Updating version file: {src}")
+    with open(src, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    today = datetime.now().strftime("%d %b %Y")
+    content = re.sub(r"(date:\s*).*(\n?)", r"\g<1>" + today + r"\g<2>", content)
+
+    def inc_ver(m):
+        if requested_version: return f"{m.group(1)}{requested_version}{m.group(3)}"
+        p = m.group(2).split('.')
+        if len(p) >= 1:
+            try: p[-1] = str(int(p[-1]) + 1)
+            except ValueError: pass
+        return f"{m.group(1)}{'.'.join(p)}{m.group(3)}"
+    
+    content = re.sub(r"(version:\s*)([0-9.]+)(\s*\n?)", inc_ver, content)
+
+    py_ver, pkgs = get_venv_info()
+    py_sec = f"Python Version\n==============\nversion: {py_ver}\n"
+    pkg_sec = f"Installed Packages\n==================\n{pkgs}"
+    
+    content = re.sub(r"Python Version\n==+.*?(?=\n\n|\Z)", py_sec.strip(), content, flags=re.DOTALL)
+    content = re.sub(r"Installed Packages\n==+.*?(?=\Z)", pkg_sec.strip(), content, flags=re.DOTALL)
+
+    with open(src, "w", encoding="utf-8") as f:
+        f.write(content.strip() + "\n")
+    
+    if dst.parent.exists():
+        shutil.copy2(src, dst)
+
+if __name__ == "__main__":
+    main()
+"""
+
 FIX_SO_SCRIPT = r"""#!/bin/bash
 set -e
 
@@ -631,13 +705,17 @@ echo Success
 """
 
 
-def build_embeetle() -> None:
+def build_embeetle(version_override: Optional[str] = None) -> None:
     """Build Embeetle inside Docker and fix shared objects."""
     assert BUILD_DIR and EMBEETLE_REPO
 
     embeetle_bld = BUILD_DIR / "embeetle"
     _ensure_dir(BUILD_DIR)
     _ensure_dir(embeetle_bld)
+
+    # Write update_version.py script to a place Docker can read it
+    update_script_path = BUILD_DIR / "update_version.py"
+    update_script_path.write_text(UPDATE_VERSION_SCRIPT, encoding="utf-8")
 
     # 1. Handle pip install & Embeetle build
     req_file = EMBEETLE_REPO / "requirements.txt"
@@ -647,8 +725,15 @@ def build_embeetle() -> None:
     else:
         pip_cmd = "pip install --no-cache-dir -r requirements.txt"
 
+    # Set up the internal script command
+    update_cmd = "python /root/bld/update_version.py"
+    if version_override:
+        update_cmd += f" --version {version_override}"
+
     build_cmd = "python build.py --repo /root/embeetle --output /root/bld/embeetle"
-    docker_build_cmd = f"{pip_cmd} && {build_cmd}"
+    
+    # Sequence: PIP INSTALL -> UPDATE VERSION -> BUILD -> UPDATE VERSION (failsafe)
+    docker_build_cmd = f"{pip_cmd} && {update_cmd} && {build_cmd} && {update_cmd}"
     run_in_docker(docker_build_cmd, working_dir_in_container="/root/embeetle")
 
     # 2. Fix Shared Objects
@@ -663,9 +748,11 @@ def build_embeetle() -> None:
     docker_fix_cmd = "bash /root/bld/fix_shared_objects.sh /root/bld/embeetle"
     run_in_docker(docker_fix_cmd, working_dir_in_container="/root/bld")
 
-    # 3. Clean up the temporary script
+    # 3. Clean up the temporary scripts
     if fix_so_script_path.exists():
         fix_so_script_path.unlink()
+    if update_script_path.exists():
+        update_script_path.unlink()
 
     # 4. Make the main Embeetle launcher executable
     embeetle_launcher = embeetle_bld / "embeetle"
@@ -688,6 +775,7 @@ def main() -> int:
     parser.add_argument("--install-sa", action="store_true")
     parser.add_argument("--build-embeetle", action="store_true")
     parser.add_argument("--all", action="store_true")
+    parser.add_argument("--version", required=False, default=None)
     args = parser.parse_args()
 
     if args.help:
@@ -774,7 +862,7 @@ def main() -> int:
     if args.build_embeetle or args.all:
         printc("\nBUILD EMBEETLE", fg="bright_blue")
         printc("==============", fg="bright_blue")
-        build_embeetle()
+        build_embeetle(version_override=args.version)
         print(f"\nEmbeetle built at '{BUILD_DIR / 'embeetle'}'")
 
     if not any([args.install_docker, args.clean_docker, args.clone, args.install_packages, args.build_llvm, args.build_sa, args.install_sa, args.build_embeetle, args.all]):
