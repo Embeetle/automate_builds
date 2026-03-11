@@ -414,6 +414,18 @@ def fix_git_config(repo_dir: Path) -> None:
     return
 
 
+def check_git_lfs_ready() -> None:
+    """Ensure git-lfs is installed."""
+    if shutil.which("git-lfs") is None:
+        printc("\nERROR: git-lfs is not installed.", fg="bright_red", bold=True)
+        printc("Git for Windows ships with git-lfs, but it may not be on your PATH.", fg="bright_yellow")
+        printc("Please reinstall Git for Windows or install git-lfs manually.", fg="bright_yellow")
+        raise SystemExit(1)
+    # Set up LFS hooks globally (idempotent)
+    run_native(["git", "lfs", "install"], check=False)
+    return
+
+
 def clone_or_update_repo(
     repo_url: str,
     repo_dir: Path,
@@ -433,6 +445,7 @@ def clone_or_update_repo(
         print(f"\n==> Cloning {repo_dir}...")
         # Add the -c flag here to force LF endings for this specific repo
         run_native(["git", "clone", "-c", "core.autocrlf=false", repo_url, str(repo_dir)], cwd=repo_parent_dir)
+        run_native(["git", "-C", str(repo_dir), "lfs", "pull"])
         return
 
     # Fix existing repo if it has wrong line-ending config
@@ -466,6 +479,8 @@ def clone_or_update_repo(
 
         # Not dirty -> propagate original error
         raise
+    run_native(["git", "-C", str(repo_dir), "lfs", "pull"])
+    return
 
 
 def determine_msys2_home() -> Path:
@@ -1208,6 +1223,7 @@ def main() -> int:
         printc("")
         printc("CLONE REPOS", fg="bright_blue")
         printc("===========", fg="bright_blue")
+        check_git_lfs_ready()
         clone_or_update_repo(
             repo_url="https://github.com/Embeetle/embeetle.git",
             repo_dir=EMBEETLE_REPO,

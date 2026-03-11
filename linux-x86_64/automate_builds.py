@@ -226,6 +226,18 @@ def fix_git_config(repo_dir: Path) -> None:
     return
 
 
+def check_git_lfs_ready() -> None:
+    """Ensure git-lfs is installed on the host."""
+    if shutil.which("git-lfs") is None:
+        printc("\nERROR: git-lfs is not installed.", fg="bright_red", bold=True)
+        printc("Please install it first:", fg="bright_yellow")
+        printc("    $ sudo apt install git-lfs", fg="bright_cyan")
+        raise SystemExit(1)
+    # Set up LFS hooks globally (idempotent)
+    run_native(["git", "lfs", "install"], check=False)
+    return
+
+
 def clone_or_update_repo(repo_url: str, repo_dir: Path) -> None:
     """Clone or update given repository on the host."""
     repo_parent_dir = repo_dir.parent
@@ -237,8 +249,9 @@ def clone_or_update_repo(repo_url: str, repo_dir: Path) -> None:
     if not repo_dir.exists():
         print(f"\n==> Cloning {repo_dir}...")
         run_native(["git", "clone", "-c", "core.autocrlf=false", repo_url, str(repo_dir)], cwd=repo_parent_dir)
+        run_native(["git", "-C", str(repo_dir), "lfs", "pull"])
         return
-    
+
     # Fix existing repo if it has wrong line-ending config
     fix_git_config(repo_dir)
 
@@ -248,6 +261,7 @@ def clone_or_update_repo(repo_url: str, repo_dir: Path) -> None:
     except subprocess.CalledProcessError:
         printc(f"\nERROR: Cannot update repo. You have local changes in {repo_dir}.", fg="bright_red")
         raise SystemExit(2)
+    run_native(["git", "-C", str(repo_dir), "lfs", "pull"])
     return
 
 
@@ -918,6 +932,7 @@ def main() -> int:
     if args.clone or args.all:
         printc("\nCLONE REPOS", fg="bright_blue")
         printc("===========", fg="bright_blue")
+        check_git_lfs_ready()
         clone_or_update_repo("https://github.com/Embeetle/embeetle.git", EMBEETLE_REPO)
         clone_or_update_repo("https://github.com/Embeetle/llvm.git", LLVM_REPO)
         clone_or_update_repo("https://github.com/Embeetle/sa.git", SA_REPO)
