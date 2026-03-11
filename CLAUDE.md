@@ -28,7 +28,6 @@ python linux-x86_64/automate_builds.py --all
 --build-sa           # Build SA
 --install-sa         # Install SA outputs into Embeetle
 --build-embeetle     # Build Embeetle
---version 2.1.0      # Override version (default: auto-increment patch)
 --all                # Run all steps
 ```
 
