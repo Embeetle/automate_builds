@@ -601,9 +601,7 @@ def main():
     #     Python Version
     #     ==============
     #     version: 3.13.7 (main, Jan 22 2026, 20:15:57) [GCC 15.2.0]
-    assert venv_python.exists(), f"Venv Python not found at '{venv_python}'"
-    py_ver = get_venv_info(venv_python)[0]
-    pkgs = get_venv_info(venv_python)[1]
+    py_ver, pkgs = get_venv_info()
     python_version_block = (
         f"Python Version\n"
         f"==============\n"
