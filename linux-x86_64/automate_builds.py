@@ -197,6 +197,35 @@ def run_in_docker(docker_cmd: str, working_dir_in_container: str = "/root") -> s
     return subprocess.run(args, check=True, text=True)
 
 
+def fix_git_config(repo_dir: Path) -> None:
+    """
+    Ensures the local repo config is set to autocrlf=false.
+    If it was wrong, it refreshes the index to fix line endings.
+    """
+    if not repo_dir.exists():
+        return
+
+    # Check the LOCAL config (not global)
+    try:
+        current_val = subprocess.check_output(
+            ["git", "-C", str(repo_dir), "config", "--local", "core.autocrlf"],
+            text=True, stderr=subprocess.DEVNULL
+        ).strip()
+    except subprocess.CalledProcessError:
+        current_val = None
+
+    if current_val != "false":
+        print(f"==> Fixing line endings for existing repo: {repo_dir.name}...")
+        # 1. Set local config
+        run_native(["git", "-C", str(repo_dir), "config", "core.autocrlf", "false"])
+        
+        # 2. Refresh the index to recognize the change
+        # This is the 'magic' to fix already-checked-out files
+        run_native(["git", "-C", str(repo_dir), "add", "--renormalize", "."], check=False)
+        printc(f"    Line endings normalized to LF in {repo_dir.name}", fg="green")
+    return
+
+
 def clone_or_update_repo(repo_url: str, repo_dir: Path) -> None:
     """Clone or update given repository on the host."""
     repo_parent_dir = repo_dir.parent
@@ -207,8 +236,11 @@ def clone_or_update_repo(repo_url: str, repo_dir: Path) -> None:
 
     if not repo_dir.exists():
         print(f"\n==> Cloning {repo_dir}...")
-        run_native(["git", "clone", repo_url, str(repo_dir)], cwd=repo_parent_dir)
+        run_native(["git", "clone", "-c", "core.autocrlf=false", repo_url, str(repo_dir)], cwd=repo_parent_dir)
         return
+    
+    # Fix existing repo if it has wrong line-ending config
+    fix_git_config(repo_dir)
 
     print(f"\n==> Updating {repo_dir}...")
     try:
