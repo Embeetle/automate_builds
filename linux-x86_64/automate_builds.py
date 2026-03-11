@@ -91,9 +91,6 @@ def _help() -> None:
     print(f"    {c('--build-llvm', fg='bright_cyan')}       Build LLVM inside Docker.")
     print(f"    {c('--build-sa', fg='bright_cyan')}         Build SA inside Docker.")
     print(f"    {c('--install-sa', fg='bright_cyan')}       Copy SA build output into Embeetle sources.")
-    print(f"    {c('--version', fg='bright_cyan')} {c('VERSION_NR', fg='bright_yellow')}  Specific version number (e.g. 2.0.1).")
-    print(f"                               If omitted, the build tool increments the")
-    print(f"                               lowest digit in version.txt by 1.")
     print(f"    {c('--build-embeetle', fg='bright_cyan')}   Build Embeetle inside Docker.")
     print(f"    {c('--all', fg='bright_cyan')}              Do everything (except installing Docker).")
     print(f"")
@@ -488,64 +485,125 @@ import sys
 import re
 import shutil
 import subprocess
-import argparse
 from pathlib import Path
 from datetime import datetime
 
 def get_venv_info():
+    # Query the venv for its Python version string and pip freeze list.
     py_ver = sys.version.replace('\n', ' ')
     try:
-        pip_freeze = subprocess.check_output([sys.executable, "-m", "pip", "freeze"], text=True).strip()
+        pip_freeze = subprocess.check_output(
+            [sys.executable, "-m", "pip", "freeze"],
+            text=True
+        ).strip()
     except Exception as e:
         pip_freeze = f"Error running pip freeze: {e}"
     return py_ver, pip_freeze
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--version", default=None)
-    args = parser.parse_args()
-
+    # Read `version.txt` from the repo, extract the repo version and date, and
+    # write a new `version.txt` in the build directory. The new version file
+    # includes:
+    #     - Embeetle version (from repo)
+    #     - Repo date (from repo)
+    #     - Build date (current date)
+    #     - Platform (hardcoded as linux-x86_64)
+    #     - Python version (queried from the venv)
+    #     - Installed packages (queried from the venv)
+    version_file_rel = Path("beetle_core/version.txt")
     repo_dir = Path("/root/embeetle")
     build_dir = Path("/root/bld/embeetle")
-    requested_version = args.version
-    
-    rel_path = Path("beetle_core/version.txt")
-    src = repo_dir / rel_path
-    dst = build_dir / rel_path
+    repo_version_path = repo_dir / version_file_rel
+    build_version_path = build_dir / version_file_rel
 
-    if not src.exists():
-        print(f"[WARN] No version file at {src}")
-        return
-
-    print(f"==> Updating version file: {src}")
-    with open(src, "r", encoding="utf-8") as f:
+    assert repo_version_path.exists(), str(
+        f"Version file not found at '{repo_version_path}'"
+    )
+    with open(repo_version_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    today = datetime.now().strftime("%d %b %Y")
-    content = re.sub(r"(date:\s*).*(\n?)", r"\g<1>" + today + r"\g<2>", content)
+    # 1. Get repo version
+    version_match = re.search(r"version:\s*([0-9.]+)", content)
+    if version_match:
+        current_version = version_match.group(1)
+        print(f"\nRepo version: {current_version}")
+    else:
+        raise RuntimeError(
+            f"Could not find repo version number in '{repo_version_path}'. "
+            f"Expected a line like 'version: x.y.z'."
+        )
 
-    def inc_ver(m):
-        if requested_version: return f"{m.group(1)}{requested_version}{m.group(3)}"
-        p = m.group(2).split('.')
-        if len(p) >= 1:
-            try: p[-1] = str(int(p[-1]) + 1)
-            except ValueError: pass
-        return f"{m.group(1)}{'.'.join(p)}{m.group(3)}"
-    
-    content = re.sub(r"(version:\s*)([0-9.]+)(\s*\n?)", inc_ver, content)
+    # 2. Get repo date
+    repo_date_match = re.search(r"repo date:\s*(.*)", content)
+    if repo_date_match:
+        repo_date = repo_date_match.group(1).strip()
+        print(f"Repo date: {repo_date}")
+    else:
+        raise RuntimeError(
+            f"Could not find repo date in '{repo_version_path}'. "
+            f"Expected a line like 'repo date: <date>'."
+        )
 
-    py_ver, pkgs = get_venv_info()
-    py_sec = f"Python Version\n==============\nversion: {py_ver}\n"
-    pkg_sec = f"Installed Packages\n==================\n{pkgs}"
-    
-    content = re.sub(r"Python Version\n==+.*?(?=\n\n|\Z)", py_sec.strip(), content, flags=re.DOTALL)
-    content = re.sub(r"Installed Packages\n==+.*?(?=\Z)", pkg_sec.strip(), content, flags=re.DOTALL)
+    # 3. Construct build date string
+    build_date_str = datetime.now().strftime("%d %b %Y")
+    print(f"Build date: {build_date_str}")
 
-    with open(src, "w", encoding="utf-8") as f:
-        f.write(content.strip() + "\n")
+    # 4. Construct Embeetle version block, like:
+    #     Embeetle Version
+    #     ================
+    #     version: 2.0.2
+    #     repo date: 04 Feb 2026
+    #     build date: 11 Mar 2026
+    #     platform: linux-x86_64
+    platform_str = "linux-x86_64"
+    embeetle_version_block = (
+        f"Embeetle Version\n"
+        f"===============\n"
+        f"version: {current_version}\n"
+        f"repo date: {repo_date}\n"
+        f"build date: {build_date_str}\n"
+        f"platform: {platform_str}\n"
+    )
+
+    # 5. Construct Python version block, like:
+    #     Python Version
+    #     ==============
+    #     version: 3.13.7 (main, Jan 22 2026, 20:15:57) [GCC 15.2.0]
+    assert venv_python.exists(), f"Venv Python not found at '{venv_python}'"
+    py_ver = get_venv_info(venv_python)[0]
+    pkgs = get_venv_info(venv_python)[1]
+    python_version_block = (
+        f"Python Version\n"
+        f"==============\n"
+        f"version: {py_ver}\n"
+    )
+
+    # 6. Construct Installed Packages block, like:
+    #     Installed Packages
+    #     ==================
+    #     package1==1.2.3
+    #     package2==4.5.6
+    installed_packages_block = (
+        f"Installed Packages\n"
+        f"==================\n"
+        f"{pkgs}"
+    )
+
+    # 7. Combine all blocks into final content
+    final_content = (
+        f"{embeetle_version_block}\n"
+        f"{python_version_block}\n"
+        f"{installed_packages_block}\n"
+    )
+    # 8. Write to build version file
+    build_version_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(build_version_path, "w", encoding="utf-8") as f:
+        f.write(final_content)
+
+    return 0
+
     
-    if dst.parent.exists():
-        shutil.copy2(src, dst)
+
 
 if __name__ == "__main__":
     main()
@@ -705,35 +763,25 @@ echo Success
 """
 
 
-def build_embeetle(version_override: Optional[str] = None) -> None:
+def build_embeetle() -> None:
     """Build Embeetle inside Docker and fix shared objects."""
     assert BUILD_DIR and EMBEETLE_REPO
-
     embeetle_bld = BUILD_DIR / "embeetle"
     _ensure_dir(BUILD_DIR)
     _ensure_dir(embeetle_bld)
 
-    # Write update_version.py script to a place Docker can read it
+    # Write `update_version.py` script to a place Docker can read it
     update_script_path = BUILD_DIR / "update_version.py"
     update_script_path.write_text(UPDATE_VERSION_SCRIPT, encoding="utf-8")
 
     # 1. Handle pip install & Embeetle build
+    # Sequence: PIP INSTALL -> BUILD -> UPDATE VERSION (failsafe)
     req_file = EMBEETLE_REPO / "requirements.txt"
-    if not req_file.exists():
-        printc(f"\n[WARN] No requirements.txt found at {req_file}", fg="bright_yellow")
-        pip_cmd = "true"
-    else:
-        pip_cmd = "pip install --no-cache-dir -r requirements.txt"
-
-    # Set up the internal script command
-    update_cmd = "python /root/bld/update_version.py"
-    if version_override:
-        update_cmd += f" --version {version_override}"
-
+    assert req_file.exists()
+    pip_cmd = "pip install --no-cache-dir -r requirements.txt"
     build_cmd = "python build.py --repo /root/embeetle --output /root/bld/embeetle"
-    
-    # Sequence: PIP INSTALL -> UPDATE VERSION -> BUILD -> UPDATE VERSION (failsafe)
-    docker_build_cmd = f"{pip_cmd} && {update_cmd} && {build_cmd} && {update_cmd}"
+    update_cmd = "python /root/bld/update_version.py"
+    docker_build_cmd = f"{pip_cmd} && {build_cmd} && {update_cmd}"
     run_in_docker(docker_build_cmd, working_dir_in_container="/root/embeetle")
 
     # 2. Fix Shared Objects
@@ -788,7 +836,6 @@ def main() -> int:
     parser.add_argument("--install-sa", action="store_true")
     parser.add_argument("--build-embeetle", action="store_true")
     parser.add_argument("--all", action="store_true")
-    parser.add_argument("--version", required=False, default=None)
     args = parser.parse_args()
 
     if args.help:
@@ -875,7 +922,7 @@ def main() -> int:
     if args.build_embeetle or args.all:
         printc("\nBUILD EMBEETLE", fg="bright_blue")
         printc("==============", fg="bright_blue")
-        build_embeetle(version_override=args.version)
+        build_embeetle()
         print(f"\nEmbeetle built at '{BUILD_DIR / 'embeetle'}'")
 
     if not any([args.install_docker, args.clean_docker, args.clone, args.install_packages, args.build_llvm, args.build_sa, args.install_sa, args.build_embeetle, args.all]):

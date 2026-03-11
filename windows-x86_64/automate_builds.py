@@ -908,8 +908,15 @@ def update_version_file(
     venv_python: Path, 
 ) -> None:
     """
-    Updates version.txt in the build directory.
-    Includes current Python version and installed packages from the venv.
+    Read `version.txt` from the repo, extract the repo version and date, and
+    write a new `version.txt` in the build directory. The new version file
+    includes:
+        - Embeetle version (from repo)
+        - Repo date (from repo)
+        - Build date (current date)
+        - Platform (hardcoded as windows-x86_64)
+        - Python version (queried from the venv)
+        - Installed packages (queried from the venv)
     """
     version_file_rel = Path("beetle_core/version.txt")
     repo_version_path = repo_dir / version_file_rel
