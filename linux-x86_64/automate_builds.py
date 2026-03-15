@@ -193,7 +193,15 @@ def run_native(args: list[str], cwd: Optional[Path] = None, check: bool = True) 
     """Run a command natively on the Linux host."""
     cmd_str = " ".join(args)
     print(f"\n[HOST] {cmd_str}")
-    return subprocess.run(args, cwd=str(cwd) if cwd else None, check=check, text=True)
+    try:
+        return subprocess.run(args, cwd=str(cwd) if cwd else None, check=check, text=True)
+    except subprocess.CalledProcessError as e:
+        printc(
+            f"\nERROR: Command failed with exit code {e.returncode} (see output above).\n"
+            f"  If you see a network error, check your internet connection and try again.",
+            fg="bright_red",
+        )
+        raise SystemExit(1)
 
 
 def run_in_docker(docker_cmd: str, working_dir_in_container: str = "/root") -> subprocess.CompletedProcess[str]:
@@ -232,7 +240,15 @@ def run_in_docker(docker_cmd: str, working_dir_in_container: str = "/root") -> s
     ]
     
     print(f"\n[DOCKER] {docker_cmd}")
-    return subprocess.run(args, check=True, text=True)
+    try:
+        return subprocess.run(args, check=True, text=True)
+    except subprocess.CalledProcessError as e:
+        printc(
+            f"\nERROR: Docker command failed with exit code {e.returncode} (see output above).\n"
+            f"  If you see a network error, check your internet connection and try again.",
+            fg="bright_red",
+        )
+        raise SystemExit(1)
 
 
 def fix_git_config(repo_dir: Path) -> None:
@@ -526,25 +542,16 @@ def build_docker_image() -> None:
         )
     
     print(f"\n==> Building Docker Image '{DOCKER_IMAGE_NAME}'...")
-    try:
-        run_native(
-            [
-                "docker",
-                "build",
-                "-t",
-                DOCKER_IMAGE_NAME,
-                ".",
-            ],
-            cwd=DOCKERFILE_DIR
-        )
-    except subprocess.CalledProcessError:
-        printc(
-            f"\nERROR: Docker image build failed (see output above).\n"
-            f"  If you see a network or DNS error, check your internet connection\n"
-            f"  and try again.",
-            fg="bright_red",
-        )
-        raise SystemExit(1)
+    run_native(
+        [
+            "docker",
+            "build",
+            "-t",
+            DOCKER_IMAGE_NAME,
+            ".",
+        ],
+        cwd=DOCKERFILE_DIR
+    )
     return
 
 
