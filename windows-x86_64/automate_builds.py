@@ -31,7 +31,6 @@ import re
 import json
 import urllib.request
 import urllib.error
-import getpass
 
 MSYS2_ROOT: Path = Path("C:/msys64")
 MSYS2_HOME: Optional[Path] = None     # eg. 'C:/msys64/home/krist'
@@ -1125,6 +1124,101 @@ def build_embeetle() -> None:
     return
 
 
+def get_github_token() -> str:
+    """
+    Verify the user has write access to the Embeetle GitHub repo.
+    Tries to obtain a GitHub token in order:
+      1. GITHUB_TOKEN environment variable
+      2. git credential fill (covers GCM, macOS Keychain, etc.)
+    Returns the token for reuse by the caller.
+    """
+    # 1. Try GITHUB_TOKEN environment variable
+    token_source = None
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    if token:
+        token_source = "GITHUB_TOKEN environment variable"
+
+    # 2. Try git credential manager
+    if not token:
+        try:
+            result = subprocess.run(
+                ["git", "credential", "fill"],
+                input="protocol=https\nhost=github.com\n\n",
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            for line in result.stdout.splitlines():
+                if line.startswith("password="):
+                    token = line[len("password="):].strip()
+                    if token:
+                        token_source = "git credential manager"
+                    break
+        except Exception:
+            pass
+
+    if not token:
+        printc(
+            f"\nERROR: Could not obtain a GitHub token. Tried:\n"
+            f"  1. GITHUB_TOKEN environment variable  (not set)\n"
+            f"  2. git credential fill for github.com (no credentials found)\n"
+            f"\nTo fix this, either:\n"
+            f"  - Set the GITHUB_TOKEN environment variable to a personal access token, or\n"
+            f"  - Sign in to GitHub via Git Credential Manager by running:\n"
+            f"      git clone https://github.com/Embeetle/embeetle.git",
+            fg="bright_red",
+        )
+        raise SystemExit(1)
+
+    masked = token[:8] + "..." + token[-4:]
+    print(f"\n==> Checking GitHub push access for '{GITHUB_EMBEETLE_REPO}'...")
+    print(f"    Token source:     {token_source}")
+    print(f"    Token:            {masked}")
+
+    # Build a small helper for the two API calls below
+    def _get(url: str) -> Tuple[dict, dict]:
+        req = urllib.request.Request(
+            url,
+            method="GET",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req) as resp:
+                return json.loads(resp.read()), dict(resp.headers)
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                printc("\nERROR: Invalid GitHub token (401 Unauthorized).", fg="bright_red")
+            elif e.code == 403:
+                printc("\nERROR: GitHub token lacks required permissions (403 Forbidden).", fg="bright_red")
+            elif e.code == 404:
+                printc(f"\nERROR: Resource not found (404): {url}", fg="bright_red")
+            else:
+                printc(f"\nERROR: GitHub API error {e.code}: {e.read().decode()}", fg="bright_red")
+            raise SystemExit(1)
+
+    # Check authenticated user and token scopes
+    user_data, user_headers = _get("https://api.github.com/user")
+    scopes = user_headers.get("X-OAuth-Scopes", "n/a").strip()
+    print(f"    Authenticated as: {user_data.get('login', 'unknown')}")
+    print(f"    Token scopes:     {scopes}")
+
+    # Check repo permissions
+    repo_data, _ = _get(f"https://api.github.com/repos/{GITHUB_EMBEETLE_REPO}")
+    if not repo_data.get("permissions", {}).get("push", False):
+        printc(
+            f"\nERROR: Your GitHub token does not have write access to '{GITHUB_EMBEETLE_REPO}'.",
+            fg="bright_red",
+        )
+        raise SystemExit(1)
+
+    print(f"    Write access confirmed (sufficient for releases and code push).")
+    return token
+
+
 def set_version(version: str) -> None:
     """
     Set the version of the Embeetle repo to x.y.z.
@@ -1143,14 +1237,19 @@ def set_version(version: str) -> None:
 
     # 1. Developer warning
     printc(
-        f"\nWARNING: --set-version is for developers with git push access only.",
+        f"\nWARNING: --set-version is for developers with git write access only.",
         fg="bright_yellow", bold=True,
     )
     choice = input("Do you want to continue? [y/n]: ").strip().lower()
     if choice != 'y':
         raise SystemExit(0)
 
-    # 2. Fetch first, then check if tag already exists on remote
+    # 2. Verify GitHub write access
+    # The token isn't needed here since git operations use GCM, so we only call
+    # the get_github_token() function to check if the user has git write access.
+    _ = get_github_token()
+
+    # 3. Fetch first, then check if tag already exists on remote
     print(f"\n==> Fetching '{EMBEETLE_REPO}'...")
     run_native(["git", "-C", str(EMBEETLE_REPO), "fetch", "--all"])
     result = subprocess.run(
@@ -1198,14 +1297,17 @@ def upload() -> None:
 
     # 1. Developer warning
     printc(
-        f"\nWARNING: --upload is for developers with git push access only.",
+        f"\nWARNING: --upload is for developers with git write access only.",
         fg="bright_yellow", bold=True,
     )
     choice = input("Do you want to continue? [y/n]: ").strip().lower()
     if choice != 'y':
         raise SystemExit(0)
 
-    # 2. Read version from build output
+    # 2. Verify GitHub write access
+    token = get_github_token()
+
+    # 3. Read version from build output
     version_file = BUILD_DIR / f"embeetle-{PLATFORM}" / "beetle_core" / "version.txt"
     if not version_file.exists():
         raise RuntimeError(
@@ -1241,14 +1343,6 @@ def upload() -> None:
             f"Did you run --build-embeetle first?"
         )
     asset_name = f"embeetle-{PLATFORM}.7z"
-
-    # 5. Get GitHub token
-    token = os.environ.get("GITHUB_TOKEN", "").strip()
-    if not token:
-        token = getpass.getpass("GitHub token (will not be echoed): ").strip()
-    if not token:
-        printc("\nERROR: No GitHub token provided.", fg="bright_red")
-        raise SystemExit(1)
 
     # Helper for GitHub REST API calls
     def _gh_api(method: str, url: str, data: dict = None) -> Optional[dict]:
@@ -1414,6 +1508,10 @@ def main() -> int:
         "--upload",
         action="store_true",
     )
+    parser.add_argument(
+        "--check-access",
+        action="store_true",
+    )
     args = parser.parse_args()
     if args.help:
         _help()
@@ -1559,6 +1657,14 @@ def main() -> int:
         printc("===========", fg="bright_blue")
         set_version(args.set_version)
 
+    # CHECK ACCESS
+    # ============
+    if args.check_access:
+        printc("")
+        printc("CHECK ACCESS", fg="bright_blue")
+        printc("============", fg="bright_blue")
+        _ = get_github_token()
+
     # UPLOAD
     # ======
     if args.upload:
@@ -1578,7 +1684,8 @@ def main() -> int:
         args.build_embeetle or
         args.all or
         args.set_version or
-        args.upload
+        args.upload or
+        args.check_access
     ):
         print("")
         print("No action chosen. Print help...")
