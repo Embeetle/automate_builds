@@ -1163,8 +1163,8 @@ def build_embeetle() -> None:
     run_native(
         [
             str(seven_zip), "a",
-            f"embeetle-{PLATFORM}.7z",
-            f"embeetle-{PLATFORM}",
+            str(embeetle_archive),
+            "*",
             "-mx=9",           # Ultra compression
             "-mmt=on",         # Use all CPU cores
             "-md=128m",        # 128 MB dictionary for better ratio
@@ -1172,7 +1172,7 @@ def build_embeetle() -> None:
             "-xr!.git",        # Exclude any accidentally included git dirs
             "-y",              # Non-interactive (assume yes)
         ],
-        cwd=BUILD_DIR,
+        cwd=embeetle_bld,
         check=True,
     )
 
