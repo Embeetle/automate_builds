@@ -29,6 +29,8 @@ import fnmatch
 import argparse
 import re
 import json
+import http.client
+import ssl
 import urllib.request
 import urllib.error
 
@@ -1492,31 +1494,44 @@ def upload() -> None:
                     _gh_api("DELETE", f"https://api.github.com/repos/{GITHUB_EMBEETLE_REPO}/releases/assets/{asset['id']}")
                     break
 
-    # Helper: upload a file as a release asset
+    # Helper: upload a file as a release asset (streamed in chunks)
     def _upload_asset(file_path: Path, content_type: str) -> None:
         name = file_path.name
         _delete_asset_if_exists(name)
-        file_data = file_path.read_bytes()
-        size_mb = len(file_data) / 1_048_576
+        size = file_path.stat().st_size
+        size_mb = size / 1_048_576
         print(f"==> Uploading '{name}' ({size_mb:.1f} MB)...")
-        url = (
-            f"https://uploads.github.com/repos/{GITHUB_EMBEETLE_REPO}"
+        path = (
+            f"/repos/{GITHUB_EMBEETLE_REPO}"
             f"/releases/{release_id}/assets?name={name}"
         )
-        req = urllib.request.Request(
-            url,
-            data=file_data,
-            method="POST",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "Content-Type": content_type,
-                "Content-Length": str(len(file_data)),
-            },
-        )
-        with urllib.request.urlopen(req) as resp:
-            result = json.loads(resp.read())
+        ctx = ssl.create_default_context()
+        conn = http.client.HTTPSConnection("uploads.github.com", context=ctx, timeout=600)
+        conn.connect()
+        conn.putrequest("POST", path)
+        conn.putheader("Authorization", f"Bearer {token}")
+        conn.putheader("Accept", "application/vnd.github+json")
+        conn.putheader("X-GitHub-Api-Version", "2022-11-28")
+        conn.putheader("Content-Type", content_type)
+        conn.putheader("Content-Length", str(size))
+        conn.endheaders()
+        CHUNK = 8 * 1024 * 1024  # 8 MB
+        sent = 0
+        with open(file_path, "rb") as f:
+            while True:
+                chunk = f.read(CHUNK)
+                if not chunk:
+                    break
+                conn.send(chunk)
+                sent += len(chunk)
+                print(f"\r    {sent / 1_048_576:.1f} / {size_mb:.1f} MB  ({sent / size * 100:.0f}%)", end="", flush=True)
+        print()
+        resp = conn.getresponse()
+        body = resp.read()
+        conn.close()
+        if resp.status not in (200, 201):
+            raise RuntimeError(f"Upload failed: HTTP {resp.status}: {body.decode()}")
+        result = json.loads(body)
         print(f"    -> {result['browser_download_url']}")
 
     # 7. Upload the .7z archive
