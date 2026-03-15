@@ -836,7 +836,7 @@ def build_embeetle() -> None:
     update_script_path = BUILD_DIR / "update_version.py"
     update_script_path.write_text(UPDATE_VERSION_SCRIPT, encoding="utf-8")
 
-    # 1. Handle pip install & Embeetle build
+    # 1. Handle pip install & Embeetle build & version update
     # Sequence: PIP INSTALL -> BUILD -> UPDATE VERSION (failsafe)
     req_file = EMBEETLE_REPO / "requirements.txt"
     assert req_file.exists()
@@ -895,6 +895,31 @@ def build_embeetle() -> None:
                         fg="bright_yellow",
                     )
 
+    # 6. Create 7zip archive
+    seven_zip: Path = EMBEETLE_REPO / "sys" / "bin" / "7za"
+    embeetle_archive: Path = BUILD_DIR / f"embeetle-{PLATFORM}.7z"
+    if embeetle_archive.exists():
+        embeetle_archive.unlink()
+    print(f"\n==> Creating archive '{embeetle_archive}'...")
+    run_native(
+        [
+            str(seven_zip), "a",
+            f"embeetle-{PLATFORM}.7z",
+            f"embeetle-{PLATFORM}",
+            "-mx=9",           # Ultra compression
+            "-mmt=on",         # Use all CPU cores
+            "-md=128m",        # 128 MB dictionary for better ratio
+            "-xr!__pycache__", # Exclude Python cache dirs
+            "-xr!*.pyc",       # Exclude Python bytecode
+            "-xr!.git",        # Exclude any accidentally included git dirs
+            "-y",              # Non-interactive (assume yes)
+            "-snl",            # Store symlinks as symlinks (not as copies)
+        ],
+        cwd=BUILD_DIR,
+        check=True,
+    )
+
+    # 7. Print
     print(f"\nEmbeetle built at '{embeetle_bld}'")
     return
 
