@@ -113,6 +113,9 @@ def _help() -> None:
     print(f"                       Checks that no GitHub release with this version tag")
     print(f"                       already exists before writing the file.")
     print(f"                       Requires GitHub write access (checked via token).")
+    print(f"    {c('--inc-version', fg='bright_cyan')}         Read the current version from version.txt, increment")
+    print(f"                       the patch number by 1, and apply it (same as --set-version).")
+    print(f"                       Requires GitHub write access (checked via token).")
     print(f"    {c('--upload', fg='bright_cyan')}            Upload the {c('~/bld/embeetle-<PLATFORM>.7z', fg='bright_yellow')} archive to a")
     print(f"                       GitHub Release for the version in version.txt.")
     print(f"                       Creates the release if it doesn't exist yet.")
@@ -1185,6 +1188,28 @@ def set_version(version: str) -> None:
     print(f"\nVersion '{tag}' set and pushed to remote.")
 
 
+def inc_version() -> None:
+    """
+    Read the current version from the Embeetle repo, increment the patch number by 1,
+    and call set_version() with the result.
+    For developers only (requires git push access).
+    """
+    assert EMBEETLE_REPO is not None
+
+    version_file = EMBEETLE_REPO / "beetle_core" / "version.txt"
+    if not version_file.exists():
+        raise RuntimeError(f"Version file not found at '{version_file}'")
+    content = version_file.read_text(encoding="utf-8")
+    match = re.search(r"version:\s*([0-9]+)\.([0-9]+)\.([0-9]+)", content)
+    if not match:
+        raise RuntimeError(f"Could not find version number in '{version_file}'")
+    major, minor, patch = match.group(1), match.group(2), match.group(3)
+    new_version = f"{major}.{minor}.{int(patch) + 1}"
+    print(f"\nCurrent version: {major}.{minor}.{patch}")
+    print(f"New version:     {new_version}")
+    set_version(new_version)
+
+
 def upload() -> None:
     """
     Upload the 7z build artifact to the GitHub Embeetle release page.
@@ -1217,6 +1242,21 @@ def upload() -> None:
     if not version_match:
         raise RuntimeError(f"Could not find version number in '{version_file}'")
     version = version_match.group(1)
+    repo_version_file = EMBEETLE_REPO / "beetle_core" / "version.txt"
+    if not repo_version_file.exists():
+        raise RuntimeError(f"Repo version file not found at '{repo_version_file}'.")
+    repo_content = repo_version_file.read_text(encoding="utf-8")
+    repo_version_match = re.search(r"version:\s*([0-9.]+)", repo_content)
+    if not repo_version_match:
+        raise RuntimeError(f"Could not find version number in '{repo_version_file}'")
+    repo_version = repo_version_match.group(1)
+    if version != repo_version:
+        raise RuntimeError(
+            f"Version mismatch: build output has '{version}' but repo has '{repo_version}'.\n"
+            f"  Build: {version_file}\n"
+            f"  Repo:  {repo_version_file}\n"
+            f"The build may be stale. Re-run --build-embeetle to sync them."
+        )
     tag = f"v{version}"
     print(f"\nBuild version: {tag}")
 
@@ -1280,38 +1320,51 @@ def upload() -> None:
         )
     release_id = release["id"]
 
-    # 7. Delete existing asset with same name (makes re-runs idempotent)
-    assets = _gh_api("GET", f"https://api.github.com/repos/{GITHUB_EMBEETLE_REPO}/releases/{release_id}/assets")
-    if assets:
-        for asset in assets:
-            if asset["name"] == asset_name:
-                print(f"==> Deleting existing asset '{asset_name}'...")
-                _gh_api("DELETE", f"https://api.github.com/repos/{GITHUB_EMBEETLE_REPO}/releases/assets/{asset['id']}")
-                break
+    # Helper: delete existing release asset by name (makes re-runs idempotent)
+    def _delete_asset_if_exists(name: str) -> None:
+        assets = _gh_api("GET", f"https://api.github.com/repos/{GITHUB_EMBEETLE_REPO}/releases/{release_id}/assets")
+        if assets:
+            for asset in assets:
+                if asset["name"] == name:
+                    print(f"==> Deleting existing asset '{name}'...")
+                    _gh_api("DELETE", f"https://api.github.com/repos/{GITHUB_EMBEETLE_REPO}/releases/assets/{asset['id']}")
+                    break
 
-    # 8. Upload asset
-    size_mb = archive.stat().st_size / 1_048_576
-    print(f"==> Uploading '{asset_name}' ({size_mb:.1f} MB)...")
-    file_data = archive.read_bytes()
-    upload_url = (
-        f"https://uploads.github.com/repos/{GITHUB_EMBEETLE_REPO}"
-        f"/releases/{release_id}/assets?name={asset_name}"
-    )
-    req = urllib.request.Request(
-        upload_url,
-        data=file_data,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "Content-Type": "application/x-7z-compressed",
-            "Content-Length": str(len(file_data)),
-        },
-    )
-    with urllib.request.urlopen(req) as resp:
-        result = json.loads(resp.read())
-    print(f"\nUploaded: {result['browser_download_url']}")
+    # Helper: upload a file as a release asset
+    def _upload_asset(file_path: Path, content_type: str) -> None:
+        name = file_path.name
+        _delete_asset_if_exists(name)
+        file_data = file_path.read_bytes()
+        size_mb = len(file_data) / 1_048_576
+        print(f"==> Uploading '{name}' ({size_mb:.1f} MB)...")
+        url = (
+            f"https://uploads.github.com/repos/{GITHUB_EMBEETLE_REPO}"
+            f"/releases/{release_id}/assets?name={name}"
+        )
+        req = urllib.request.Request(
+            url,
+            data=file_data,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "Content-Type": content_type,
+                "Content-Length": str(len(file_data)),
+            },
+        )
+        with urllib.request.urlopen(req) as resp:
+            result = json.loads(resp.read())
+        print(f"    -> {result['browser_download_url']}")
+
+    # 7. Upload the .7z archive
+    _upload_asset(archive, "application/x-7z-compressed")
+
+    # 8. Upload version.txt from the Embeetle repo (not the build output)
+    version_txt = EMBEETLE_REPO / "beetle_core" / "version.txt"
+    if not version_txt.exists():
+        raise RuntimeError(f"version.txt not found at '{version_txt}'.")
+    _upload_asset(version_txt, "text/plain")
 
 
 def main() -> int:
@@ -1327,6 +1380,7 @@ def main() -> int:
     parser.add_argument("--build-embeetle", action="store_true")
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--set-version", metavar="x.y.z", default=None)
+    parser.add_argument("--inc-version", action="store_true")
     parser.add_argument("--upload", action="store_true")
     parser.add_argument("--check-access", action="store_true")
     args = parser.parse_args()
@@ -1423,6 +1477,11 @@ def main() -> int:
         printc("===========", fg="bright_blue")
         set_version(args.set_version)
 
+    if args.inc_version:
+        printc("\nINC VERSION", fg="bright_blue")
+        printc("===========", fg="bright_blue")
+        inc_version()
+
     if args.check_access:
         printc("\nCHECK ACCESS", fg="bright_blue")
         printc("============", fg="bright_blue")
@@ -1433,7 +1492,7 @@ def main() -> int:
         printc("======", fg="bright_blue")
         upload()
 
-    if not any([args.install_docker, args.clean_docker, args.clone, args.install_packages, args.build_llvm, args.build_sa, args.install_sa, args.build_embeetle, args.all, args.set_version, args.upload, args.check_access]):
+    if not any([args.install_docker, args.clean_docker, args.clone, args.install_packages, args.build_llvm, args.build_sa, args.install_sa, args.build_embeetle, args.all, args.set_version, args.inc_version, args.upload, args.check_access]):
         print("\nNo action chosen. Print help...")
         _help()
 
