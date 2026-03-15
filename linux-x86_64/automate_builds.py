@@ -1401,42 +1401,65 @@ def upload() -> None:
     # Helper: upload a file as a release asset (streamed in chunks)
     def _upload_asset(file_path: Path, content_type: str) -> None:
         name = file_path.name
-        _delete_asset_if_exists(name)
         size = file_path.stat().st_size
         size_mb = size / 1_048_576
-        print(f"==> Uploading '{name}' ({size_mb:.1f} MB)...")
         path = (
             f"/repos/{GITHUB_EMBEETLE_REPO}"
             f"/releases/{release_id}/assets?name={name}"
         )
-        ctx = ssl.create_default_context()
-        conn = http.client.HTTPSConnection("uploads.github.com", context=ctx, timeout=600)
-        conn.connect()
-        conn.putrequest("POST", path)
-        conn.putheader("Authorization", f"Bearer {token}")
-        conn.putheader("Accept", "application/vnd.github+json")
-        conn.putheader("X-GitHub-Api-Version", "2022-11-28")
-        conn.putheader("Content-Type", content_type)
-        conn.putheader("Content-Length", str(size))
-        conn.endheaders()
         CHUNK = 8 * 1024 * 1024  # 8 MB
-        sent = 0
-        with open(file_path, "rb") as f:
-            while True:
-                chunk = f.read(CHUNK)
-                if not chunk:
-                    break
-                conn.send(chunk)
-                sent += len(chunk)
-                print(f"\r    {sent / 1_048_576:.1f} / {size_mb:.1f} MB  ({sent / size * 100:.0f}%)", end="", flush=True)
-        print()
-        resp = conn.getresponse()
-        body = resp.read()
-        conn.close()
-        if resp.status not in (200, 201):
-            raise RuntimeError(f"Upload failed: HTTP {resp.status}: {body.decode()}")
-        result = json.loads(body)
-        print(f"    -> {result['browser_download_url']}")
+        MAX_ATTEMPTS = 5
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            _delete_asset_if_exists(name)
+            if attempt == 1:
+                print(f"==> Uploading '{name}' ({size_mb:.1f} MB)...")
+            else:
+                print(f"==> Uploading '{name}' ({size_mb:.1f} MB)... (attempt {attempt}/{MAX_ATTEMPTS})")
+            try:
+                ctx = ssl.create_default_context()
+                conn = http.client.HTTPSConnection("uploads.github.com", context=ctx, timeout=600)
+                conn.connect()
+                conn.putrequest("POST", path)
+                conn.putheader("Authorization", f"Bearer {token}")
+                conn.putheader("Accept", "application/vnd.github+json")
+                conn.putheader("X-GitHub-Api-Version", "2022-11-28")
+                conn.putheader("Content-Type", content_type)
+                conn.putheader("Content-Length", str(size))
+                conn.endheaders()
+                sent = 0
+                with open(file_path, "rb") as f:
+                    while True:
+                        chunk = f.read(CHUNK)
+                        if not chunk:
+                            break
+                        conn.send(chunk)
+                        sent += len(chunk)
+                        print(f"\r    {sent / 1_048_576:.1f} / {size_mb:.1f} MB  ({sent / size * 100:.0f}%)", end="", flush=True)
+                print()
+                resp = conn.getresponse()
+                body = resp.read()
+                conn.close()
+                if resp.status not in (200, 201):
+                    raise RuntimeError(f"Upload failed: HTTP {resp.status}: {body.decode()}")
+                result = json.loads(body)
+                print(f"    -> {result['browser_download_url']}")
+                return
+            except OSError as e:
+                print()
+                if attempt < MAX_ATTEMPTS:
+                    wait = 2 ** attempt
+                    printc(
+                        f"    Connection error during upload: {e}\n"
+                        f"    Retrying in {wait}s...",
+                        fg="bright_yellow",
+                    )
+                    time.sleep(wait)
+                else:
+                    printc(
+                        f"\nERROR: Upload failed after {MAX_ATTEMPTS} attempts: {e}",
+                        fg="bright_red",
+                    )
+                    raise SystemExit(1)
 
     # 7. Upload the .7z archive
     _upload_asset(archive, "application/x-7z-compressed")
