@@ -259,8 +259,39 @@ def clone_or_update_repo(repo_url: str, repo_dir: Path) -> None:
     try:
         run_native(["git", "-C", str(repo_dir), "pull", "--ff-only"], cwd=repo_parent_dir)
     except subprocess.CalledProcessError:
-        printc(f"\nERROR: Cannot update repo. You have local changes in {repo_dir}.", fg="bright_red")
-        raise SystemExit(2)
+        try:
+            status = subprocess.check_output(
+                ["git", "-C", str(repo_dir), "status", "--porcelain"],
+                text=True,
+                stderr=subprocess.STDOUT,
+            )
+        except Exception:
+            status = ""
+
+        if status.strip():
+            printc(
+                f"\nWARNING: Repo has local changes:\n"
+                f"  {repo_dir}\n",
+                fg="bright_yellow"
+            )
+            print(f"Git status (--porcelain):")
+            print(status.rstrip())
+            print(f"\nWhat would you like to do?")
+            print(f"  [r] Reset and continue (discard local changes and pull)")
+            print(f"  [s] Skip (leave repo as-is and continue)")
+            print(f"  [a] Abort")
+            choice = input("Your choice [r/s/a]: ").strip().lower()
+            if choice == 'r':
+                run_native(["git", "-C", str(repo_dir), "fetch", "--all"])
+                run_native(["git", "-C", str(repo_dir), "reset", "--hard", "origin/HEAD"])
+                run_native(["git", "-C", str(repo_dir), "clean", "-fd"])
+            elif choice == 's':
+                printc(f"\nSkipping update for '{repo_dir}'.", fg="bright_yellow")
+                return
+            else:
+                raise SystemExit(2)
+        else:
+            raise
     run_native(["git", "-C", str(repo_dir), "lfs", "pull"])
     return
 

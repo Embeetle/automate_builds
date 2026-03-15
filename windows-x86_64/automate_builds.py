@@ -469,14 +469,26 @@ def clone_or_update_repo(
 
         if status.strip():
             printc(
-                f"\nERROR: Cannot update repo because it has local (unstaged/modified) changes:\n"
-                f"  {repo_dir}\n\n"
-                f"Please commit, stash, or revert these changes and rerun.\n"
-                f"Git status (--porcelain):",
-                fg="bright_red"
+                f"\nWARNING: Repo has local changes:\n"
+                f"  {repo_dir}\n",
+                fg="bright_yellow"
             )
+            print(f"Git status (--porcelain):")
             print(status.rstrip())
-            raise SystemExit(2)
+            print(f"\nWhat would you like to do?")
+            print(f"  [r] Reset and continue (discard local changes and pull)")
+            print(f"  [s] Skip (leave repo as-is and continue)")
+            print(f"  [a] Abort")
+            choice = input("Your choice [r/s/a]: ").strip().lower()
+            if choice == 'r':
+                run_native(["git", "-C", str(repo_dir), "fetch", "--all"])
+                run_native(["git", "-C", str(repo_dir), "reset", "--hard", "origin/HEAD"])
+                run_native(["git", "-C", str(repo_dir), "clean", "-fd"])
+            elif choice == 's':
+                printc(f"\nSkipping update for '{repo_dir}'.", fg="bright_yellow")
+                return
+            else:
+                raise SystemExit(2)
 
         # Not dirty -> propagate original error
         raise
