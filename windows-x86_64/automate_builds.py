@@ -1169,7 +1169,6 @@ def build_embeetle() -> None:
             "-mmt=on",         # Use all CPU cores
             "-md=128m",        # 128 MB dictionary for better ratio
             "-xr!__pycache__", # Exclude Python cache dirs
-            "-xr!*.pyc",       # Exclude Python bytecode
             "-xr!.git",        # Exclude any accidentally included git dirs
             "-y",              # Non-interactive (assume yes)
         ],
