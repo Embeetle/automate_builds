@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 import os
+import time
 import shutil
 import subprocess
 import sys
@@ -1102,42 +1103,64 @@ def get_github_token() -> str:
                 "Authorization": f"Bearer {token}",
                 "Accept": "application/vnd.github+json",
                 "X-GitHub-Api-Version": "2022-11-28",
+                "User-Agent": "automate_builds/1.0",
             },
         )
-        try:
-            with urllib.request.urlopen(req) as resp:
-                return json.loads(resp.read()), dict(resp.headers)
-        except urllib.error.HTTPError as e:
-            if e.code == 401:
+        last_exc = None
+        for attempt in range(3):
+            if attempt:
+                time.sleep(2 ** attempt)
+            try:
+                with urllib.request.urlopen(req) as resp:
+                    return json.loads(resp.read()), dict(resp.headers)
+            except urllib.error.HTTPError as e:
+                if e.code == 401:
+                    printc(
+                        f"\nERROR: GitHub token rejected (401 Unauthorized).\n"
+                        f"  The token is invalid or has expired.\n"
+                        f"  - If using Option A (GCM): re-run 'git credential-manager github login'\n"
+                        f"    to refresh your credentials.\n"
+                        f"  - If using Option B (GITHUB_TOKEN): generate a new PAT at\n"
+                        f"    https://github.com/settings/tokens and update the environment variable.",
+                        fg="bright_red",
+                    )
+                elif e.code == 403:
+                    printc(
+                        f"\nERROR: GitHub token lacks required permissions (403 Forbidden).\n"
+                        f"  The token was accepted but is not authorized for this operation.\n"
+                        f"  - If using Option A (GCM): re-run 'git credential-manager github login'\n"
+                        f"    to re-authenticate and obtain a token with the correct scopes.\n"
+                        f"  - If using Option B (GITHUB_TOKEN): make sure the PAT has the 'repo'\n"
+                        f"    scope enabled at https://github.com/settings/tokens",
+                        fg="bright_red",
+                    )
+                elif e.code == 404:
+                    printc(
+                        f"\nERROR: Repository '{GITHUB_EMBEETLE_REPO}' not found (404).\n"
+                        f"  Either the repository does not exist, or your token does not have\n"
+                        f"  permission to see it.",
+                        fg="bright_red",
+                    )
+                else:
+                    printc(f"\nERROR: GitHub API error {e.code}: {e.read().decode()}", fg="bright_red")
+                raise SystemExit(1)
+            except urllib.error.URLError as e:
+                if isinstance(e.reason, OSError):
+                    # Transient connection error — retry
+                    last_exc = e
+                    continue
                 printc(
-                    f"\nERROR: GitHub token rejected (401 Unauthorized).\n"
-                    f"  The token is invalid or has expired.\n"
-                    f"  - If using Option A (GCM): re-run 'git credential-manager github login'\n"
-                    f"    to refresh your credentials.\n"
-                    f"  - If using Option B (GITHUB_TOKEN): generate a new PAT at\n"
-                    f"    https://github.com/settings/tokens and update the environment variable.",
+                    f"\nERROR: Network error contacting GitHub API: {e.reason}",
                     fg="bright_red",
                 )
-            elif e.code == 403:
-                printc(
-                    f"\nERROR: GitHub token lacks required permissions (403 Forbidden).\n"
-                    f"  The token was accepted but is not authorized for this operation.\n"
-                    f"  - If using Option A (GCM): re-run 'git credential-manager github login'\n"
-                    f"    to re-authenticate and obtain a token with the correct scopes.\n"
-                    f"  - If using Option B (GITHUB_TOKEN): make sure the PAT has the 'repo'\n"
-                    f"    scope enabled at https://github.com/settings/tokens",
-                    fg="bright_red",
-                )
-            elif e.code == 404:
-                printc(
-                    f"\nERROR: Repository '{GITHUB_EMBEETLE_REPO}' not found (404).\n"
-                    f"  Either the repository does not exist, or your token does not have\n"
-                    f"  permission to see it.",
-                    fg="bright_red",
-                )
-            else:
-                printc(f"\nERROR: GitHub API error {e.code}: {e.read().decode()}", fg="bright_red")
-            raise SystemExit(1)
+                raise SystemExit(1)
+        printc(
+            f"\nERROR: GitHub API unreachable after 3 attempts (connection reset).\n"
+            f"  Check your internet connection or try again later.\n"
+            f"  Last error: {last_exc}",
+            fg="bright_red",
+        )
+        raise SystemExit(1)
 
     # Check authenticated user and token scopes
     user_data, user_headers = _get("https://api.github.com/user")
