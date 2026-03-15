@@ -27,6 +27,12 @@ from typing import Iterable, Optional, Tuple, Union, IO
 import hashlib
 import fnmatch
 import argparse
+import re
+import json
+import urllib.request
+import urllib.error
+import getpass
+from datetime import datetime
 
 # =============================================================================
 # GLOBAL PATHS
@@ -41,6 +47,7 @@ SYS_REPO: Optional[Path] = None       # eg. '~/embeetle/sys'
 BUILD_DIR: Optional[Path] = None      # eg. '~/bld'
 DOCKER_IMAGE_NAME: str = "embeetle-build-env:latest"
 PLATFORM: str = "linux-x86_64"
+GITHUB_EMBEETLE_REPO: str = "Embeetle/embeetle"
 
 
 def _help() -> None:
@@ -955,6 +962,203 @@ def build_embeetle() -> None:
     return
 
 
+def set_version(version: str) -> None:
+    """
+    Set the version of the Embeetle repo to x.y.z.
+    For developers only (requires git push access).
+    """
+    assert EMBEETLE_REPO is not None
+
+    # 0. Validate format
+    if not re.match(r'^\d+\.\d+\.\d+$', version):
+        printc(
+            f"\nERROR: Invalid version format '{version}'. Expected x.y.z (e.g. 2.1.3).",
+            fg="bright_red",
+        )
+        raise SystemExit(1)
+    tag = f"v{version}"
+
+    # 1. Developer warning
+    printc(
+        f"\nWARNING: --set-version is for developers with git push access only.",
+        fg="bright_yellow", bold=True,
+    )
+    choice = input("Do you want to continue? [y/n]: ").strip().lower()
+    if choice != 'y':
+        raise SystemExit(0)
+
+    # 2. Fetch first, then check if tag already exists on remote
+    print(f"\n==> Fetching '{EMBEETLE_REPO}'...")
+    run_native(["git", "-C", str(EMBEETLE_REPO), "fetch", "--all"])
+    result = subprocess.run(
+        ["git", "-C", str(EMBEETLE_REPO), "ls-remote", "--tags", "origin", f"refs/tags/{tag}"],
+        capture_output=True, text=True,
+    )
+    if result.stdout.strip():
+        printc(
+            f"\nERROR: Tag '{tag}' already exists on the remote. "
+            f"Did someone else already set this version?",
+            fg="bright_red",
+        )
+        raise SystemExit(1)
+
+    # 3. Update version.txt in the repo
+    version_file = EMBEETLE_REPO / "beetle_core" / "version.txt"
+    if not version_file.exists():
+        raise RuntimeError(f"Version file not found at '{version_file}'")
+    today = datetime.now().strftime("%d %b %Y")
+    content = version_file.read_text(encoding="utf-8")
+    content = re.sub(r"version:\s*[0-9.]+", f"version: {version}", content)
+    content = re.sub(r"repo date:\s*.*", f"repo date: {today}", content)
+    version_file.write_text(content, encoding="utf-8")
+    print(f"\n==> Updated '{version_file}':")
+    print(f"    version:   {version}")
+    print(f"    repo date: {today}")
+
+    # 4. Commit, tag, push
+    run_native(["git", "-C", str(EMBEETLE_REPO), "add", "beetle_core/version.txt"])
+    run_native(["git", "-C", str(EMBEETLE_REPO), "commit", "-m", tag])
+    run_native(["git", "-C", str(EMBEETLE_REPO), "tag", tag])
+    run_native(["git", "-C", str(EMBEETLE_REPO), "push"])
+    run_native(["git", "-C", str(EMBEETLE_REPO), "push", "origin", tag])
+
+    print(f"\nVersion '{tag}' set and pushed to remote.")
+
+
+def upload() -> None:
+    """
+    Upload the 7z build artifact to the GitHub Embeetle release page.
+    For developers only (requires git push access and a GitHub token).
+    """
+    assert EMBEETLE_REPO is not None
+    assert BUILD_DIR is not None
+
+    # 1. Developer warning
+    printc(
+        f"\nWARNING: --upload is for developers with git push access only.",
+        fg="bright_yellow", bold=True,
+    )
+    choice = input("Do you want to continue? [y/n]: ").strip().lower()
+    if choice != 'y':
+        raise SystemExit(0)
+
+    # 2. Read version from build output
+    version_file = BUILD_DIR / f"embeetle-{PLATFORM}" / "beetle_core" / "version.txt"
+    if not version_file.exists():
+        raise RuntimeError(
+            f"Build version file not found at '{version_file}'. "
+            f"Did you run --build-embeetle first?"
+        )
+    content = version_file.read_text(encoding="utf-8")
+    version_match = re.search(r"version:\s*([0-9.]+)", content)
+    if not version_match:
+        raise RuntimeError(f"Could not find version number in '{version_file}'")
+    version = version_match.group(1)
+    tag = f"v{version}"
+    print(f"\nBuild version: {tag}")
+
+    # 3. Check tag exists on remote
+    result = subprocess.run(
+        ["git", "-C", str(EMBEETLE_REPO), "ls-remote", "--tags", "origin", f"refs/tags/{tag}"],
+        capture_output=True, text=True,
+    )
+    if not result.stdout.strip():
+        printc(
+            f"\nERROR: Tag '{tag}' does not exist on the remote. "
+            f"Please run --set-version {version} first.",
+            fg="bright_red",
+        )
+        raise SystemExit(1)
+
+    # 4. Check archive exists
+    archive = BUILD_DIR / f"embeetle-{PLATFORM}.7z"
+    if not archive.exists():
+        raise RuntimeError(
+            f"Archive not found at '{archive}'. "
+            f"Did you run --build-embeetle first?"
+        )
+    asset_name = f"embeetle-{PLATFORM}.7z"
+
+    # 5. Get GitHub token
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    if not token:
+        token = getpass.getpass("GitHub token (will not be echoed): ").strip()
+    if not token:
+        printc("\nERROR: No GitHub token provided.", fg="bright_red")
+        raise SystemExit(1)
+
+    # Helper for GitHub REST API calls
+    def _gh_api(method: str, url: str, data: dict = None) -> Optional[dict]:
+        body = json.dumps(data).encode() if data else None
+        req = urllib.request.Request(
+            url,
+            data=body,
+            method=method,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+            raise RuntimeError(f"GitHub API error {e.code}: {e.read().decode()}")
+
+    # 6. Find or create the release
+    print(f"\n==> Checking GitHub release for '{tag}'...")
+    release = _gh_api("GET", f"https://api.github.com/repos/{GITHUB_EMBEETLE_REPO}/releases/tags/{tag}")
+    if release is None:
+        print(f"\nRelease notes (press Enter for 'Release {tag}'):")
+        notes = input("> ").strip()
+        if not notes:
+            notes = f"Release {tag}"
+        print(f"==> Creating release '{tag}'...")
+        release = _gh_api(
+            "POST",
+            f"https://api.github.com/repos/{GITHUB_EMBEETLE_REPO}/releases",
+            {"tag_name": tag, "name": tag, "body": notes},
+        )
+    release_id = release["id"]
+
+    # 7. Delete existing asset with same name (makes re-runs idempotent)
+    assets = _gh_api("GET", f"https://api.github.com/repos/{GITHUB_EMBEETLE_REPO}/releases/{release_id}/assets")
+    if assets:
+        for asset in assets:
+            if asset["name"] == asset_name:
+                print(f"==> Deleting existing asset '{asset_name}'...")
+                _gh_api("DELETE", f"https://api.github.com/repos/{GITHUB_EMBEETLE_REPO}/releases/assets/{asset['id']}")
+                break
+
+    # 8. Upload asset
+    size_mb = archive.stat().st_size / 1_048_576
+    print(f"==> Uploading '{asset_name}' ({size_mb:.1f} MB)...")
+    file_data = archive.read_bytes()
+    upload_url = (
+        f"https://uploads.github.com/repos/{GITHUB_EMBEETLE_REPO}"
+        f"/releases/{release_id}/assets?name={asset_name}"
+    )
+    req = urllib.request.Request(
+        upload_url,
+        data=file_data,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Content-Type": "application/x-7z-compressed",
+            "Content-Length": str(len(file_data)),
+        },
+    )
+    with urllib.request.urlopen(req) as resp:
+        result = json.loads(resp.read())
+    print(f"\nUploaded: {result['browser_download_url']}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build Embeetle, LLVM and SA", add_help=False)
     parser.add_argument("-h", "--help", action="store_true")
@@ -967,6 +1171,8 @@ def main() -> int:
     parser.add_argument("--install-sa", action="store_true")
     parser.add_argument("--build-embeetle", action="store_true")
     parser.add_argument("--all", action="store_true")
+    parser.add_argument("--set-version", metavar="x.y.z", default=None)
+    parser.add_argument("--upload", action="store_true")
     args = parser.parse_args()
 
     if args.help:
@@ -1056,7 +1262,17 @@ def main() -> int:
         printc("==============", fg="bright_blue")
         build_embeetle()
 
-    if not any([args.install_docker, args.clean_docker, args.clone, args.install_packages, args.build_llvm, args.build_sa, args.install_sa, args.build_embeetle, args.all]):
+    if args.set_version:
+        printc("\nSET VERSION", fg="bright_blue")
+        printc("===========", fg="bright_blue")
+        set_version(args.set_version)
+
+    if args.upload:
+        printc("\nUPLOAD", fg="bright_blue")
+        printc("======", fg="bright_blue")
+        upload()
+
+    if not any([args.install_docker, args.clean_docker, args.clone, args.install_packages, args.build_llvm, args.build_sa, args.install_sa, args.build_embeetle, args.all, args.set_version, args.upload]):
         print("\nNo action chosen. Print help...")
         _help()
 
