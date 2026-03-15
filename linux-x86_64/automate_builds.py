@@ -272,6 +272,23 @@ def check_git_lfs_ready() -> None:
     return
 
 
+def fix_sys_permissions(sys_dir: Path) -> None:
+    """
+    Ensure all files under a sys/ directory are executable.
+    Git and LFS do not always preserve execute bits on Linux, so we enforce
+    them explicitly after every clone, update, or install that touches sys/.
+    """
+    if not sys_dir.exists():
+        return
+    printc(f"\n==> Fixing executable permissions in '{sys_dir}'...", fg="bright_blue")
+    for file_path in sys_dir.rglob("*"):
+        if file_path.is_file():
+            try:
+                file_path.chmod(file_path.stat().st_mode | 0o111)
+            except Exception as e:
+                printc(f"    [WARN] Could not set permissions for {file_path.name}: {e}", fg="bright_yellow")
+
+
 def clone_or_update_repo(repo_url: str, repo_dir: Path) -> None:
     """Clone or update given repository on the host."""
     repo_parent_dir = repo_dir.parent
@@ -604,6 +621,10 @@ def install_sa_sys_into_embeetle_sys() -> None:
         mirror_dir(src=src_esa, dst=dst_esa, delete=True)
         if dst2_sys.is_dir():
             mirror_dir(src=src_esa, dst=dst2_esa, delete=True)
+
+    fix_sys_permissions(dst_sys)
+    if dst2_sys.is_dir():
+        fix_sys_permissions(dst2_sys)
     return
 
 
@@ -943,25 +964,14 @@ def build_embeetle() -> None:
         embeetle_launcher.chmod(embeetle_launcher.stat().st_mode | 0o111)
 
     # 5. Make the sys directory contents executable
-    sys_dir = embeetle_bld / "sys"
-    if sys_dir.exists():
-        printc(
-            f"\n==> Fixing executable permissions in '{sys_dir}'...",
-            fg="bright_blue",
-        )
-        for file_path in sys_dir.rglob("*"):
-            if file_path.is_file():
-                try:
-                    # Adds executable permission for Owner, Group, and Others (chmod +x)
-                    file_path.chmod(file_path.stat().st_mode | 0o111)
-                except Exception as e:
-                    printc(
-                        f"    [WARN] Could not change permissions for {file_path.name}: {e}",
-                        fg="bright_yellow",
-                    )
+    fix_sys_permissions(embeetle_bld / "sys")
 
     # 6. Create 7zip archive
+    # Also fix permissions on the repo's sys/bin/7za itself — git/lfs may not
+    # preserve execute bits after a fresh clone or lfs pull.
     seven_zip: Path = EMBEETLE_REPO / "sys" / "bin" / "7za"
+    if seven_zip.exists():
+        seven_zip.chmod(seven_zip.stat().st_mode | 0o111)
     embeetle_archive: Path = BUILD_DIR / f"embeetle-{PLATFORM}.7z"
     if embeetle_archive.exists():
         embeetle_archive.unlink()
@@ -1441,6 +1451,7 @@ def main() -> int:
         clone_or_update_repo("https://github.com/Embeetle/sa.git", SA_REPO)
         # Note the change to sys-<PLATFORM>
         clone_or_update_repo(f"https://github.com/Embeetle/sys-{PLATFORM}.git", SYS_REPO)
+        fix_sys_permissions(SYS_REPO)
         print("\nAll repositories are up to date.")
 
     if args.install_packages or args.all:
