@@ -31,6 +31,7 @@ import re
 import json
 import http.client
 import ssl
+import atexit
 import urllib.request
 import urllib.error
 
@@ -446,6 +447,33 @@ def fix_git_config(repo_dir: Path) -> None:
         run_native(["git", "-C", str(repo_dir), "add", "--renormalize", "."], check=False)
         printc(f"    Line endings normalized to LF in {repo_dir.name}", fg="green")
     return
+
+
+def setup_git_auth_from_token() -> None:
+    """
+    If GITHUB_TOKEN is set in the environment, configure git to use it for all
+    HTTPS operations against github.com — without any interactive prompt.
+
+    Git calls the GIT_ASKPASS script whenever it needs a username or password.
+    We write a small .cmd script that returns 'x-access-token' for the username
+    and the token value for the password, then point GIT_ASKPASS at it and disable
+    the terminal prompt entirely with GIT_TERMINAL_PROMPT=0.
+
+    This is a no-op when GITHUB_TOKEN is not set (e.g. when GCM is used instead).
+    """
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    if not token:
+        return
+    askpass_path = Path(os.environ.get("TEMP", "C:/Windows/Temp")) / "_embeetle_git_askpass.cmd"
+    askpass_path.write_text(
+        "@echo off\n"
+        'echo %1 | findstr /i "username" >nul && echo x-access-token && exit /b\n'
+        'echo %1 | findstr /i "password" >nul && echo ' + token + ' && exit /b\n'
+    )
+    os.environ["GIT_ASKPASS"] = str(askpass_path)
+    os.environ["GIT_TERMINAL_PROMPT"] = "0"
+    atexit.register(lambda: askpass_path.unlink(missing_ok=True))
+    print(f"\n==> GITHUB_TOKEN detected — git configured to authenticate via token.")
 
 
 def check_git_lfs_ready() -> None:
@@ -1695,6 +1723,9 @@ def main() -> int:
     print(f"{c('LLVM_REPO', fg='bright_yellow')}     = '{LLVM_REPO}'")
     print(f"{c('SA_REPO', fg='bright_yellow')}       = '{SA_REPO}'")
     print(f"{c('BUILD_DIR', fg='bright_yellow')}     = '{BUILD_DIR}'")
+
+    # CONFIGURE GIT AUTH FROM TOKEN (if available)
+    setup_git_auth_from_token()
 
     # CLONE REPOS
     # ===========
