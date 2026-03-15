@@ -98,7 +98,31 @@ def _help() -> None:
     print(f"    {c('--build-sa', fg='bright_cyan')}         Build SA inside Docker.")
     print(f"    {c('--install-sa', fg='bright_cyan')}       Copy SA build output into Embeetle sources.")
     print(f"    {c('--build-embeetle', fg='bright_cyan')}   Build Embeetle inside Docker.")
-    print(f"    {c('--all', fg='bright_cyan')}              Do everything (except installing Docker).")
+    print(f"    {c('--all', fg='bright_cyan')}              Run the full build pipeline (except installing Docker):")
+    print(f"                           {c('--clone', fg='bright_cyan')}")
+    print(f"                           {c('--install-packages', fg='bright_cyan')}")
+    print(f"                           {c('--build-llvm', fg='bright_cyan')}")
+    print(f"                           {c('--build-sa', fg='bright_cyan')}")
+    print(f"                           {c('--install-sa', fg='bright_cyan')}")
+    print(f"                           {c('--build-embeetle', fg='bright_cyan')}")
+    print(f"                       {c('Note:', fg='bright_magenta')} Does NOT run the collaborator-only flags below.")
+    print(f"")
+    print(f"    {c('Collaborator-only flags', fg='bright_magenta')} (require write access to the GitHub repo):")
+    print(f"")
+    print(f"    {c('--set-version', fg='bright_cyan')} {c('X.Y.Z', fg='bright_yellow')}     Manually set the version in version.txt.")
+    print(f"                       Checks that no GitHub release with this version tag")
+    print(f"                       already exists before writing the file.")
+    print(f"                       Requires GitHub write access (checked via token).")
+    print(f"    {c('--upload', fg='bright_cyan')}            Upload the {c('~/bld/embeetle-<PLATFORM>.7z', fg='bright_yellow')} archive to a")
+    print(f"                       GitHub Release for the version in version.txt.")
+    print(f"                       Creates the release if it doesn't exist yet.")
+    print(f"                       Replaces an existing asset with the same name.")
+    print(f"                       Requires GitHub write access (checked via token).")
+    print(f"    {c('--check-access', fg='bright_cyan')}      Verify that a GitHub token can be found and that it")
+    print(f"                       grants write access to the Embeetle repository.")
+    print(f"                       Exits with code 0 on success, 1 on failure.")
+    print(f"                       Useful for diagnosing token/permission issues before")
+    print(f"                       running {c('--set-version', fg='bright_cyan')} or {c('--upload', fg='bright_cyan')}.")
     print(f"")
     print(f"{c('RESULTS', fg='bright_blue')}")
     print(f"    Running this script with the {c('--all', fg='bright_cyan')} flag should result in:")
@@ -109,6 +133,7 @@ def _help() -> None:
     print(f"         │  └─ automate_builds.py [this script]")
     print(f"         ├─ bld")
     print(f"         │  ├─ embeetle-<PLATFORM>")
+    print(f"         │  ├─ embeetle-<PLATFORM>.7z")
     print(f"         │  ├─ llvm")
     print(f"         │  └─ sa")
     print(f"         ├─ embeetle  ")
@@ -999,10 +1024,19 @@ def get_github_token() -> str:
             f"\nERROR: Could not obtain a GitHub token. Tried:\n"
             f"  1. GITHUB_TOKEN environment variable  (not set)\n"
             f"  2. git credential fill for github.com (no credentials found)\n"
-            f"\nTo fix this, either:\n"
-            f"  - Set the GITHUB_TOKEN environment variable to a personal access token, or\n"
-            f"  - Sign in to GitHub via Git Credential Manager by running:\n"
-            f"      git clone https://github.com/Embeetle/embeetle.git",
+            f"\nTo fix this, choose ONE of the following options:\n"
+            f"\n"
+            f"  Option A - Git Credential Manager (recommended):\n"
+            f"      $ git credential-manager github login\n"
+            f"    This opens a browser window for OAuth authentication with GitHub\n"
+            f"    and stores the token securely in your system's credential store.\n"
+            f"    No manual token management required.\n"
+            f"\n"
+            f"  Option B - GITHUB_TOKEN environment variable:\n"
+            f"    Create a Personal Access Token (PAT) at:\n"
+            f"      https://github.com/settings/tokens\n"
+            f"    Make sure to grant it the 'repo' scope. Then set it as an\n"
+            f"    environment variable named GITHUB_TOKEN.",
             fg="bright_red",
         )
         raise SystemExit(1)
@@ -1028,11 +1062,32 @@ def get_github_token() -> str:
                 return json.loads(resp.read()), dict(resp.headers)
         except urllib.error.HTTPError as e:
             if e.code == 401:
-                printc("\nERROR: Invalid GitHub token (401 Unauthorized).", fg="bright_red")
+                printc(
+                    f"\nERROR: GitHub token rejected (401 Unauthorized).\n"
+                    f"  The token is invalid or has expired.\n"
+                    f"  - If using Option A (GCM): re-run 'git credential-manager github login'\n"
+                    f"    to refresh your credentials.\n"
+                    f"  - If using Option B (GITHUB_TOKEN): generate a new PAT at\n"
+                    f"    https://github.com/settings/tokens and update the environment variable.",
+                    fg="bright_red",
+                )
             elif e.code == 403:
-                printc("\nERROR: GitHub token lacks required permissions (403 Forbidden).", fg="bright_red")
+                printc(
+                    f"\nERROR: GitHub token lacks required permissions (403 Forbidden).\n"
+                    f"  The token was accepted but is not authorized for this operation.\n"
+                    f"  - If using Option A (GCM): re-run 'git credential-manager github login'\n"
+                    f"    to re-authenticate and obtain a token with the correct scopes.\n"
+                    f"  - If using Option B (GITHUB_TOKEN): make sure the PAT has the 'repo'\n"
+                    f"    scope enabled at https://github.com/settings/tokens",
+                    fg="bright_red",
+                )
             elif e.code == 404:
-                printc(f"\nERROR: Resource not found (404): {url}", fg="bright_red")
+                printc(
+                    f"\nERROR: Repository '{GITHUB_EMBEETLE_REPO}' not found (404).\n"
+                    f"  Either the repository does not exist, or your token does not have\n"
+                    f"  permission to see it.",
+                    fg="bright_red",
+                )
             else:
                 printc(f"\nERROR: GitHub API error {e.code}: {e.read().decode()}", fg="bright_red")
             raise SystemExit(1)
@@ -1047,7 +1102,13 @@ def get_github_token() -> str:
     repo_data, _ = _get(f"https://api.github.com/repos/{GITHUB_EMBEETLE_REPO}")
     if not repo_data.get("permissions", {}).get("push", False):
         printc(
-            f"\nERROR: Your GitHub token does not have write access to '{GITHUB_EMBEETLE_REPO}'.",
+            f"\nERROR: Your GitHub account does not have write access to '{GITHUB_EMBEETLE_REPO}'.\n"
+            f"  The token itself is valid, but the GitHub account it belongs to is not a\n"
+            f"  collaborator with write (or higher) permissions on this repository.\n"
+            f"  Ask a repository admin to grant you write access at:\n"
+            f"    https://github.com/{GITHUB_EMBEETLE_REPO}/settings/access\n"
+            f"Contact:\n"
+            f"info@embeetle.com\n",
             fg="bright_red",
         )
         raise SystemExit(1)
