@@ -526,16 +526,25 @@ def build_docker_image() -> None:
         )
     
     print(f"\n==> Building Docker Image '{DOCKER_IMAGE_NAME}'...")
-    run_native(
-        [
-            "docker",
-            "build",
-            "-t",
-            DOCKER_IMAGE_NAME,
-            ".",
-        ],
-        cwd=DOCKERFILE_DIR
-    )
+    try:
+        run_native(
+            [
+                "docker",
+                "build",
+                "-t",
+                DOCKER_IMAGE_NAME,
+                ".",
+            ],
+            cwd=DOCKERFILE_DIR
+        )
+    except subprocess.CalledProcessError:
+        printc(
+            f"\nERROR: Docker image build failed (see output above).\n"
+            f"  If you see a network or DNS error, check your internet connection\n"
+            f"  and try again.",
+            fg="bright_red",
+        )
+        raise SystemExit(1)
     return
 
 
@@ -1361,16 +1370,29 @@ def upload() -> None:
                 "Accept": "application/vnd.github+json",
                 "X-GitHub-Api-Version": "2022-11-28",
                 "Content-Type": "application/json",
+                "User-Agent": "automate_builds/1.0",
             },
         )
-        try:
-            with urllib.request.urlopen(req) as resp:
-                body = resp.read()
-                return json.loads(body) if body else None
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                return None
-            raise RuntimeError(f"GitHub API error {e.code}: {e.read().decode()}")
+        last_exc = None
+        for attempt in range(3):
+            if attempt:
+                time.sleep(2 ** attempt)
+            try:
+                with urllib.request.urlopen(req) as resp:
+                    body = resp.read()
+                    return json.loads(body) if body else None
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    return None
+                raise RuntimeError(f"GitHub API error {e.code}: {e.read().decode()}")
+            except urllib.error.URLError as e:
+                if isinstance(e.reason, OSError):
+                    last_exc = e
+                    continue
+                raise RuntimeError(f"GitHub API network error: {e.reason}")
+        raise RuntimeError(
+            f"GitHub API unreachable after 3 attempts (last error: {last_exc})"
+        )
 
     # 6. Find or create the release
     print(f"\n==> Checking GitHub release for '{tag}'...")
