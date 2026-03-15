@@ -39,8 +39,8 @@ LLVM_REPO: Optional[Path] = None      # eg. '~/llvm'
 SA_REPO: Optional[Path] = None        # eg. '~/sa'
 SYS_REPO: Optional[Path] = None       # eg. '~/embeetle/sys'
 BUILD_DIR: Optional[Path] = None      # eg. '~/bld'
-
-DOCKER_IMAGE_NAME = "embeetle-build-env:latest"
+DOCKER_IMAGE_NAME: str = "embeetle-build-env:latest"
+PLATFORM: str = "linux-x86_64"
 
 
 def _help() -> None:
@@ -63,7 +63,7 @@ def _help() -> None:
     print(f"")
     print(f"{c('PREREQUISITES', fg='bright_blue')}")
     print(f"    - Drop this script and the Dockerfile")
-    print(f"      (see https://github.com/Embeetle/automate_builds/edit/master/linux-x86_64/Dockerfile)")
+    print(f"      (see https://github.com/Embeetle/automate_builds/edit/master/{PLATFORM}/Dockerfile)")
     print(f"      in the same directory")
     print(f"      (e.g., {c('~/embeetle_docker/', fg='bright_yellow')}). It will automatically target")
     print(f"      your home directory for cloning repos and building.")
@@ -102,7 +102,7 @@ def _help() -> None:
     print(f"         │  ├─ Dockerfile")
     print(f"         │  └─ automate_builds.py [this script]")
     print(f"         ├─ bld")
-    print(f"         │  ├─ embeetle")
+    print(f"         │  ├─ embeetle-<PLATFORM>")
     print(f"         │  ├─ llvm")
     print(f"         │  └─ sa")
     print(f"         ├─ embeetle  ")
@@ -118,7 +118,7 @@ def _help() -> None:
     print(f"                {c('$ python embeetle.py', fg='bright_yellow')}")
     print(f"")
     print(f"        {c('..from the executable:', fg='bright_magenta')}")
-    print(f"            Navigate to {c('~/bld/embeetle', fg='bright_yellow')} and launch the built binary.")
+    print(f"            Navigate to {c('~/bld/embeetle-<PLATFORM>', fg='bright_yellow')} and launch the built binary.")
     return
 
 
@@ -404,10 +404,21 @@ def clean_docker() -> None:
 def build_docker_image() -> None:
     """Build the Docker image from the Dockerfile."""
     if not DOCKERFILE_DIR.exists() or not (DOCKERFILE_DIR / "Dockerfile").exists():
-        raise FileNotFoundError(f"Dockerfile not found at {DOCKERFILE_DIR}/Dockerfile")
+        raise FileNotFoundError(
+            f"Dockerfile not found at {DOCKERFILE_DIR}/Dockerfile"
+        )
     
     print(f"\n==> Building Docker Image '{DOCKER_IMAGE_NAME}'...")
-    run_native(["docker", "build", "-t", DOCKER_IMAGE_NAME, "."], cwd=DOCKERFILE_DIR)
+    run_native(
+        [
+            "docker",
+            "build",
+            "-t",
+            DOCKER_IMAGE_NAME,
+            ".",
+        ],
+        cwd=DOCKERFILE_DIR
+    )
     return
 
 
@@ -420,7 +431,7 @@ def build_llvm() -> None:
     """Build LLVM inside Docker."""
     assert BUILD_DIR and SA_REPO
 
-    llvm_bld = BUILD_DIR / "llvm"
+    llvm_bld: Path = BUILD_DIR / "llvm"
     _ensure_dir(BUILD_DIR)
     _ensure_dir(llvm_bld)
     _ensure_dir(SA_REPO / "sys" / "linux")
@@ -436,7 +447,7 @@ def build_sa() -> None:
     """Build SA inside Docker."""
     assert BUILD_DIR and SA_REPO
 
-    sa_bld = BUILD_DIR / "sa"
+    sa_bld: Path = BUILD_DIR / "sa"
     _ensure_dir(BUILD_DIR)
     _ensure_dir(sa_bld)
     _ensure_dir(SA_REPO / "sys" / "linux")
@@ -448,7 +459,12 @@ def build_sa() -> None:
     return
 
 
-def mirror_dir(src: Union[str, Path], dst: Union[str, Path], delete: bool = False, exclude: Iterable[str] = (".git/**", "__pycache__/**")) -> None:
+def mirror_dir(
+        src: Union[str, Path],
+        dst: Union[str, Path],
+        delete: bool = False,
+        exclude: Iterable[str] = (".git/**", "__pycache__/**"),
+) -> None:
     """One-way mirror: makes dst look like src on the host filesystem."""
     def _excluded(_rel_posix: str, patterns: Iterable[str]) -> bool:
         return any(fnmatch.fnmatch(_rel_posix, _pat) for _pat in patterns)
@@ -500,21 +516,24 @@ def install_sa_sys_into_embeetle_sys() -> None:
     """Copy Linux SA build outputs on the host."""
     assert BUILD_DIR and EMBEETLE_REPO
 
-    src_sys = BUILD_DIR / "sa/sys-linux-x86_64"
-    dst_sys = EMBEETLE_REPO / "sys"
-    dst2_sys = BUILD_DIR / "embeetle/sys"
+    src_sys: Path = BUILD_DIR / f"sa/sys-{PLATFORM}"
+    dst_sys: Path = EMBEETLE_REPO / "sys"
+    dst2_sys: Path = BUILD_DIR / f"embeetle-{PLATFORM}/sys"
 
     if not src_sys.is_dir():
-        raise RuntimeError(f"Source sys folder does not exist: '{src_sys}'. Did SA build successfully?")
+        raise RuntimeError(
+            f"Source sys folder does not exist: '{src_sys}'. "
+            f"Did SA build successfully?"
+        )
 
     print(f"\n==> Installing SA sys overlay:")
     mirror_dir(src=src_sys, dst=dst_sys, delete=False)
     if dst2_sys.is_dir():
         mirror_dir(src=src_sys, dst=dst2_sys, delete=False)
 
-    src_esa = src_sys / "esa"
-    dst_esa = dst_sys / "esa"
-    dst2_esa = dst2_sys / "esa"
+    src_esa: Path = src_sys / "esa"
+    dst_esa: Path = dst_sys / "esa"
+    dst2_esa: Path = dst2_sys / "esa"
 
     if src_esa.is_dir():
         mirror_dir(src=src_esa, dst=dst_esa, delete=True)
@@ -533,6 +552,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from datetime import datetime
+PLATFORM = "linux-x86_64"
 
 def get_venv_info():
     # Query the venv for its Python version string and pip freeze list.
@@ -553,12 +573,12 @@ def main():
     #     - Embeetle version (from repo)
     #     - Repo date (from repo)
     #     - Build date (current date)
-    #     - Platform (hardcoded as linux-x86_64)
+    #     - Platform (hardcoded as <PLATFORM>)
     #     - Python version (queried from the venv)
     #     - Installed packages (queried from the venv)
     version_file_rel = Path("beetle_core/version.txt")
     repo_dir = Path("/root/embeetle")
-    build_dir = Path("/root/bld/embeetle")
+    build_dir = Path(f"/root/bld/embeetle-{PLATFORM}")
     repo_version_path = repo_dir / version_file_rel
     build_version_path = build_dir / version_file_rel
 
@@ -601,14 +621,13 @@ def main():
     #     repo date: 04 Feb 2026
     #     build date: 11 Mar 2026
     #     platform: linux-x86_64
-    platform_str = "linux-x86_64"
     embeetle_version_block = (
         f"Embeetle Version\n"
         f"===============\n"
         f"version: {current_version}\n"
         f"repo date: {repo_date}\n"
         f"build date: {build_date_str}\n"
-        f"platform: {platform_str}\n"
+        f"platform: {PLATFORM}\n"
     )
 
     # 5. Construct Python version block, like:
@@ -645,8 +664,6 @@ def main():
         f.write(final_content)
 
     return 0
-
-    
 
 
 if __name__ == "__main__":
@@ -810,7 +827,8 @@ echo Success
 def build_embeetle() -> None:
     """Build Embeetle inside Docker and fix shared objects."""
     assert BUILD_DIR and EMBEETLE_REPO
-    embeetle_bld = BUILD_DIR / "embeetle"
+    embeetle_bld: Path = BUILD_DIR / f"embeetle-{PLATFORM}"
+    embeetle_bld_in_docker: str = "/root/bld/" + embeetle_bld.relative_to(BUILD_DIR).as_posix()
     _ensure_dir(BUILD_DIR)
     _ensure_dir(embeetle_bld)
 
@@ -823,21 +841,24 @@ def build_embeetle() -> None:
     req_file = EMBEETLE_REPO / "requirements.txt"
     assert req_file.exists()
     pip_cmd = "pip install --no-cache-dir -r requirements.txt"
-    build_cmd = "python build.py --repo /root/embeetle --output /root/bld/embeetle"
+    build_cmd = f"python build.py --repo /root/embeetle --output {embeetle_bld_in_docker}"
     update_cmd = "python /root/bld/update_version.py"
     docker_build_cmd = f"{pip_cmd} && {build_cmd} && {update_cmd}"
     run_in_docker(docker_build_cmd, working_dir_in_container="/root/embeetle")
 
     # 2. Fix Shared Objects
-    printc("\n==> Fixing shared objects (copying from Docker OS)...", fg="bright_blue")
+    printc(
+        "\n==> Fixing shared objects (copying from Docker OS)...",
+        fg="bright_blue",
+    )
     
     # Write the bash script temporarily to the host's build directory
-    fix_so_script_path = BUILD_DIR / "fix_shared_objects.sh"
+    fix_so_script_path: Path = BUILD_DIR / "fix_shared_objects.sh"
     fix_so_script_path.write_text(FIX_SO_SCRIPT, encoding="utf-8")
     
     # Run the script inside Docker, pointing it to the compiled Embeetle tree
     # Notice we use the internal /root/bld/... paths
-    docker_fix_cmd = "bash /root/bld/fix_shared_objects.sh /root/bld/embeetle"
+    docker_fix_cmd = f"bash /root/bld/fix_shared_objects.sh {embeetle_bld_in_docker}"
     run_in_docker(docker_fix_cmd, working_dir_in_container="/root/bld")
 
     # 3. Clean up the temporary scripts
@@ -849,22 +870,32 @@ def build_embeetle() -> None:
     # 4. Make the main Embeetle launcher executable
     embeetle_launcher = embeetle_bld / "embeetle"
     if embeetle_launcher.exists():
-        printc(f"\n==> Making launcher executable: {embeetle_launcher}", fg="bright_blue")
+        printc(
+            f"\n==> Making launcher executable: {embeetle_launcher}",
+            fg="bright_blue",
+        )
         # This is the Python equivalent of 'chmod +x'
         embeetle_launcher.chmod(embeetle_launcher.stat().st_mode | 0o111)
 
     # 5. Make the sys directory contents executable
     sys_dir = embeetle_bld / "sys"
     if sys_dir.exists():
-        printc(f"\n==> Fixing executable permissions in '{sys_dir}'...", fg="bright_blue")
+        printc(
+            f"\n==> Fixing executable permissions in '{sys_dir}'...",
+            fg="bright_blue",
+        )
         for file_path in sys_dir.rglob("*"):
             if file_path.is_file():
                 try:
                     # Adds executable permission for Owner, Group, and Others (chmod +x)
                     file_path.chmod(file_path.stat().st_mode | 0o111)
                 except Exception as e:
-                    printc(f"    [WARN] Could not change permissions for {file_path.name}: {e}", fg="bright_yellow")
-                    
+                    printc(
+                        f"    [WARN] Could not change permissions for {file_path.name}: {e}",
+                        fg="bright_yellow",
+                    )
+
+    print(f"\nEmbeetle built at '{embeetle_bld}'")
     return
 
 
@@ -936,8 +967,8 @@ def main() -> int:
         clone_or_update_repo("https://github.com/Embeetle/embeetle.git", EMBEETLE_REPO)
         clone_or_update_repo("https://github.com/Embeetle/llvm.git", LLVM_REPO)
         clone_or_update_repo("https://github.com/Embeetle/sa.git", SA_REPO)
-        # Note the change to sys-linux-x86_64
-        clone_or_update_repo("https://github.com/Embeetle/sys-linux-x86_64.git", SYS_REPO)
+        # Note the change to sys-<PLATFORM>
+        clone_or_update_repo(f"https://github.com/Embeetle/sys-{PLATFORM}.git", SYS_REPO)
         print("\nAll repositories are up to date.")
 
     if args.install_packages or args.all:
@@ -968,7 +999,6 @@ def main() -> int:
         printc("\nBUILD EMBEETLE", fg="bright_blue")
         printc("==============", fg="bright_blue")
         build_embeetle()
-        print(f"\nEmbeetle built at '{BUILD_DIR / 'embeetle'}'")
 
     if not any([args.install_docker, args.clean_docker, args.clone, args.install_packages, args.build_llvm, args.build_sa, args.install_sa, args.build_embeetle, args.all]):
         print("\nNo action chosen. Print help...")

@@ -36,6 +36,7 @@ LLVM_REPO: Optional[Path] = None      # eg. 'C:/msys64/home/krist/llvm'
 SA_REPO: Optional[Path] = None        # eg. 'C:/msys64/home/krist/sa'
 SYS_REPO: Optional[Path] = None       # eg. 'C:/msys64/home/krist/embeetle/sys'
 BUILD_DIR: Optional[Path] = None      # eg. 'C:/msys64/home/krist/bld'
+PLATFORM: str = "windows-x86_64"
 
 
 def _help() -> None:
@@ -112,14 +113,14 @@ def _help() -> None:
     print(f"                           output:  {c('<BUILD_DIR>/sa', fg='bright_yellow')}")
     print(f"    ")
     print(f"    {c('--install-sa', fg='bright_cyan')}       Install SA; copy its build output into Embeetle sources:")
-    print(f"                           copy from: {c('<BUILD_DIR>/sa/sys-windows-x86_64', fg='bright_yellow')}")
+    print(f"                           copy from: {c(f'<BUILD_DIR>/sa/sys-{PLATFORM}', fg='bright_yellow')}")
     print(f"                           into:      {c('<EMBEETLE_REPO>/sys', fg='bright_yellow')}")
-    print(f"                       It will *also* copy into {c('<BUILD_DIR>/embeetle/sys', fg='bright_yellow')} if")
+    print(f"                       It will *also* copy into {c(f'<BUILD_DIR>/embeetle-{PLATFORM}/sys', fg='bright_yellow')} if")
     print(f"                       that folder exists (Embeetle was built before).")
     print(f"    ")
     print(f"    {c('--build-embeetle', fg='bright_cyan')}   Build Embeetle")
     print(f"                           sources: {c('<EMBEETLE_REPO>', fg='bright_yellow')}")
-    print(f"                           output:  {c('<BUILD_DIR>/embeetle', fg='bright_yellow')}")
+    print(f"                           output:  {c('<BUILD_DIR>/embeetle-<PLATFORM>', fg='bright_yellow')}")
     print(f"                       When building Embeetle, the content of the 'sys' folder")
     print(f"                       in the Embeetle repo is transferred to the Embeetle")
     print(f"                       build.")
@@ -144,7 +145,7 @@ def _help() -> None:
     print(f"    ")
     print(f"        {c('<MSYS2_HOME>', fg='bright_yellow')}")
     print(f"              ├─ bld")
-    print(f"              │   ├─ embeetle")
+    print(f"              │   ├─ embeetle-<PLATFORM>")
     print(f"              │   ├─ embeetle_venv  {c('<-- Isolated Python environment', fg='bright_black')}")
     print(f"              │   ├─ llvm")
     print(f"              │   └─ sa")
@@ -163,7 +164,7 @@ def _help() -> None:
     print(f"                {c('(embeetle_venv) >', fg='bright_green')} {c(' python embeetle.py', fg='bright_yellow')}")
     print(f"    ")
     print(f"        {c('..from the executable:', fg='bright_magenta')}")
-    print(f"            Navigate to the embeetle build at {c('<MSYS_HOME>/bld/embeetle', fg='bright_yellow')} and")
+    print(f"            Navigate to the embeetle build at {c('<MSYS_HOME>/bld/embeetle-<PLATFORM>', fg='bright_yellow')} and")
     print(f"            launch {c('embeetle.exe', fg='bright_yellow')}.")
     print(f"    ")
     return
@@ -627,8 +628,8 @@ def build_llvm() -> None:
     assert LLVM_REPO is not None
     assert BUILD_DIR is not None
 
-    llvm_bld = BUILD_DIR / "llvm"
-    sa_bld = BUILD_DIR / "sa"
+    llvm_bld: Path = BUILD_DIR / "llvm"
+    sa_bld: Path = BUILD_DIR / "sa"
 
     # Create build dirs
     _ensure_dir(BUILD_DIR)
@@ -667,8 +668,8 @@ def build_sa() -> None:
     assert LLVM_REPO is not None
     assert BUILD_DIR is not None
 
-    llvm_bld = BUILD_DIR / "llvm"
-    sa_bld = BUILD_DIR / "sa"
+    llvm_bld: Path = BUILD_DIR / "llvm"
+    sa_bld: Path = BUILD_DIR / "sa"
 
     # Create build dirs
     _ensure_dir(BUILD_DIR)
@@ -822,9 +823,9 @@ def msys2_uname_m() -> str:
 
 def install_sa_sys_into_embeetle_sys() -> None:
     """
-    Copy the contents of '<BUILD_DIR>/sa/sys-windows-x86_64' into:
+    Copy the contents of '<BUILD_DIR>/sa/sys-<PLATFORM>' into:
       - '<EMBEETLE_REPO>/sys'
-      - '<BUILD_DIR>/embeetle/sys'
+      - '<BUILD_DIR>/embeetle-<PLATFORM>/sys'
 
     Behavior:
       - Overlay-copy everything (overwrite existing, do NOT delete extras)
@@ -833,9 +834,9 @@ def install_sa_sys_into_embeetle_sys() -> None:
     assert BUILD_DIR is not None
     assert EMBEETLE_REPO is not None
 
-    src_sys = BUILD_DIR / "sa/sys-windows-x86_64"
-    dst_sys = EMBEETLE_REPO / "sys"
-    dst2_sys = BUILD_DIR / "embeetle/sys"
+    src_sys: Path = BUILD_DIR / f"sa/sys-{PLATFORM}"
+    dst_sys: Path = EMBEETLE_REPO / "sys"
+    dst2_sys: Path = BUILD_DIR / f"embeetle-{PLATFORM}/sys"
 
     if not dst_sys.is_dir():
         raise RuntimeError(
@@ -929,13 +930,13 @@ def update_version_file(
         - Embeetle version (from repo)
         - Repo date (from repo)
         - Build date (current date)
-        - Platform (hardcoded as windows-x86_64)
+        - Platform (hardcoded as <PLATFORM>)
         - Python version (queried from the venv)
         - Installed packages (queried from the venv)
     """
-    version_file_rel = Path("beetle_core/version.txt")
-    repo_version_path = repo_dir / version_file_rel
-    build_version_path = build_dir / version_file_rel
+    version_file_rel: Path = Path("beetle_core/version.txt")
+    repo_version_path: Path = repo_dir / version_file_rel
+    build_version_path: Path = build_dir / version_file_rel
 
     assert repo_version_path.exists(), str(
         f"Version file not found at '{repo_version_path}'"
@@ -976,14 +977,13 @@ def update_version_file(
     #     repo date: 04 Feb 2026
     #     build date: 11 Mar 2026
     #     platform: windows-x86_64
-    platform_str = "windows-x86_64"
     embeetle_version_block = (
         f"Embeetle Version\n"
         f"===============\n"
         f"version: {current_version}\n"
         f"repo date: {repo_date}\n"
         f"build date: {build_date_str}\n"
-        f"platform: {platform_str}\n"
+        f"platform: {PLATFORM}\n"
     )
 
     # 5. Construct Python version block, like:
@@ -1025,14 +1025,14 @@ def update_version_file(
 
 def build_embeetle() -> None:
     """
-    Build Embeetle
+    Build Embeetle from '<EMBEETLE_REPO>' to '<BUILD_DIR>/embeetle-<PLATFORM>'
     """
     assert MSYS2_HOME is not None
     assert EMBEETLE_REPO is not None
     assert BUILD_DIR is not None
 
-    embeetle_bld = BUILD_DIR / "embeetle"
-    venv_dir = BUILD_DIR / "embeetle_venv"
+    embeetle_bld: Path = BUILD_DIR / f"embeetle-{PLATFORM}"
+    venv_dir: Path = BUILD_DIR / "embeetle_venv"
 
     # Create build dirs
     _ensure_dir(BUILD_DIR)
@@ -1071,7 +1071,7 @@ def build_embeetle() -> None:
             "--repo",
             str(EMBEETLE_REPO).replace("\\", "/"),
             "--output",
-            str(BUILD_DIR / "embeetle").replace("\\", "/"),
+            str(embeetle_bld).replace("\\", "/"),
         ],
         cwd=EMBEETLE_REPO,
         check=True,
@@ -1079,6 +1079,9 @@ def build_embeetle() -> None:
 
     # 5. Update version file
     update_version_file(EMBEETLE_REPO, embeetle_bld, venv_python)
+
+    # 6. Print
+    print(f"\nEmbeetle built at '{embeetle_bld}'")
     return
 
 
@@ -1237,7 +1240,7 @@ def main() -> int:
             repo_dir=SA_REPO,
         )
         clone_or_update_repo(
-            repo_url="https://github.com/Embeetle/sys-windows-x86_64.git",
+            repo_url=f"https://github.com/Embeetle/sys-{PLATFORM}.git",
             repo_dir=SYS_REPO,
         )
         print("\nAll repositories are up to date.")
@@ -1301,7 +1304,6 @@ def main() -> int:
         printc("BUILD EMBEETLE", fg="bright_blue")
         printc("==============", fg="bright_blue")
         build_embeetle()
-        print(f"\nEmbeetle built at '{BUILD_DIR / 'embeetle'}'")
     
     # DO NOTHING
     # ==========
@@ -1320,7 +1322,6 @@ def main() -> int:
         print("")
         input("Press any key to quit...")
         sys.exit(0)
-
 
     return 0
 
