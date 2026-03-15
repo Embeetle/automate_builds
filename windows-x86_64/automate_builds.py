@@ -1513,7 +1513,8 @@ def upload() -> None:
         )
         try:
             with urllib.request.urlopen(req) as resp:
-                return json.loads(resp.read())
+                body = resp.read()
+                return json.loads(body) if body else None
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return None
