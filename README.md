@@ -1,17 +1,12 @@
 # Embeetle Build Automation
 
-Build automation scripts for three interdependent components:
+This repository provides build automation scripts to build Embeetle and all its components:
 
-- **Embeetle** — IDE for developing embedded C/C++ projects (written in Python/PyQt6)
+- **Embeetle** — IDE for developing embedded C/C++ projects
 - **LLVM** — compiler infrastructure used by Embeetle
 - **SA** — Source code Analyzer, whose output is bundled into Embeetle
 
-Platform-specific implementations are provided:
-
-| Platform | Script | Toolchain |
-|---|---|---|
-| Windows x86-64 | `windows-x86_64/automate_builds.py` | MSYS2 UCRT64 |
-| Linux x86-64 | `linux-x86_64/automate_builds.py` | Docker (manylinux_2_34) |
+To build Embeetle on Windows 10/11, you need the build script at `windows-x86_64/automate_builds.py`. For Linux you need the one at `linux-x86_64/automate_builds.py`.
 
 ---
 
@@ -28,13 +23,13 @@ automate_builds/
 
 ---
 
-## Windows
+## WINDOWS
 
 ### Prerequisites
 
 - **Git for Windows** — must be on `PATH` (`git --version` works in CMD)
 - **Python 3.14+** — must be on `PATH` (`python --version` works in CMD)
-- **MSYS2** — preferably installed at `C:\msys64`
+- **MSYS2** — preferably installed at `C:/msys64`
 
 > **Important:** Run the script from a native Windows CMD shell, not from an MSYS2
 > shell. The script launches MSYS2 sub-shells automatically when needed.
@@ -51,8 +46,10 @@ Clones all repos, installs MSYS2 packages, and builds LLVM, SA, and Embeetle in
 one go. The resulting executable lands at:
 
 ```
-<MSYS2_HOME>\bld\embeetle-windows-x86_64\embeetle.exe
+<MSYS2_HOME>/bld/embeetle-windows-x86_64/embeetle.exe
 ```
+
+Replace `<MSYS2_HOME>` with the MSYS2 home folder on your system (eg. `C:/msys64/home/krist`)
 
 **Collaborator flow** (requires GitHub write access):
 
@@ -68,7 +65,7 @@ one go. The resulting executable lands at:
 | Variable | Default |
 |---|---|
 | MSYS2 root | `C:/msys64` |
-| Repos | `<MSYS2_HOME>/embeetle`, `.../llvm`, `.../sa` |
+| Repos | `<MSYS2_HOME>/embeetle`, `<MSYS2_HOME>/llvm`, `<MSYS2_HOME>/sa` |
 | Build output | `<MSYS2_HOME>/bld` |
 | Python venv | `<MSYS2_HOME>/embeetle/.venv` |
 
@@ -78,15 +75,15 @@ Override with `--msys-root`, `--embeetle-repo`, `--llvm-repo`, `--sa-repo`, `--o
 
 ```
 <MSYS2_HOME>/
-├── bld/
-│   ├── embeetle-windows-x86_64/    ← built IDE
-│   ├── embeetle-windows-x86_64.7z  ← release archive
-│   ├── llvm/
-│   └── sa/
-├── embeetle/
-│   └── .venv/                      ← isolated Python environment
-├── llvm/
-└── sa/
+  ├── bld/
+  │   ├── embeetle-windows-x86_64/    ← built IDE
+  │   ├── embeetle-windows-x86_64.7z  ← release archive
+  │   ├── llvm/
+  │   └── sa/
+  ├── embeetle/
+  │   └── .venv/                      ← isolated Python environment
+  ├── llvm/
+  └── sa/
 ```
 
 ### Running Embeetle
@@ -100,14 +97,14 @@ Navigate to `<MSYS2_HOME>/bld/embeetle-windows-x86_64/` and launch `embeetle.exe
 ```cmd
 > cd <MSYS2_HOME>/embeetle
 > python -m venv .venv
-> call .venv\Scripts\activate.bat
+> call .venv/Scripts/activate.bat
 > python -m pip install -r requirements.txt
 > run.cmd
 ```
 
 ---
 
-## Linux
+## LINUX
 
 ### Prerequisites
 
