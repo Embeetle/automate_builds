@@ -1,2 +1,246 @@
-# automate_builds
-Automate building Embeetle, LLVM and SA
+# Embeetle Build Automation
+
+Build automation scripts for three interdependent components:
+
+- **Embeetle** — IDE for developing embedded C/C++ projects (written in Python/PyQt6)
+- **LLVM** — compiler infrastructure used by Embeetle
+- **SA** — Source code Analyzer, whose output is bundled into Embeetle
+
+Platform-specific implementations are provided:
+
+| Platform | Script | Toolchain |
+|---|---|---|
+| Windows x86-64 | `windows-x86_64/automate_builds.py` | MSYS2 UCRT64 |
+| Linux x86-64 | `linux-x86_64/automate_builds.py` | Docker (manylinux_2_34) |
+
+---
+
+## Repository layout
+
+```
+automate_builds/
+├── windows-x86_64/
+│   └── automate_builds.py
+└── linux-x86_64/
+    ├── automate_builds.py
+    └── Dockerfile
+```
+
+---
+
+## Windows
+
+### Prerequisites
+
+- **Git for Windows** — must be on `PATH` (`git --version` works in CMD)
+- **Python 3.14+** — must be on `PATH` (`python --version` works in CMD)
+- **MSYS2** — preferably installed at `C:\msys64`
+
+> **Important:** Run the script from a native Windows CMD shell, not from an MSYS2
+> shell. The script launches MSYS2 sub-shells automatically when needed.
+
+### Quick start
+
+**Standard build** (for anyone):
+
+```cmd
+> python automate_builds.py --all
+```
+
+Clones all repos, installs MSYS2 packages, and builds LLVM, SA, and Embeetle in
+one go. The resulting executable lands at:
+
+```
+<MSYS2_HOME>\bld\embeetle-windows-x86_64\embeetle.exe
+```
+
+**Collaborator flow** (requires GitHub write access):
+
+```cmd
+> python automate_builds.py --check-access          # 1. verify token
+> python automate_builds.py --inc-version           # 2. bump version
+> python automate_builds.py --all                   # 3. full build
+> python automate_builds.py --upload                # 4. publish release
+```
+
+### Default paths
+
+| Variable | Default |
+|---|---|
+| MSYS2 root | `C:/msys64` |
+| Repos | `<MSYS2_HOME>/embeetle`, `.../llvm`, `.../sa` |
+| Build output | `<MSYS2_HOME>/bld` |
+| Python venv | `<MSYS2_HOME>/embeetle/.venv` |
+
+Override with `--msys-root`, `--embeetle-repo`, `--llvm-repo`, `--sa-repo`, `--output`.
+
+### Output layout after `--all`
+
+```
+<MSYS2_HOME>/
+├── bld/
+│   ├── embeetle-windows-x86_64/    ← built IDE
+│   ├── embeetle-windows-x86_64.7z  ← release archive
+│   ├── llvm/
+│   └── sa/
+├── embeetle/
+│   └── .venv/                      ← isolated Python environment
+├── llvm/
+└── sa/
+```
+
+### Running Embeetle
+
+**From the executable:**
+
+Navigate to `<MSYS2_HOME>/bld/embeetle-windows-x86_64/` and launch `embeetle.exe`.
+
+**From sources:**
+
+```cmd
+> cd <MSYS2_HOME>/embeetle
+> python -m venv .venv
+> call .venv\Scripts\activate.bat
+> python -m pip install -r requirements.txt
+> run.cmd
+```
+
+---
+
+## Linux
+
+### Prerequisites
+
+- **Git** — available on `PATH`
+- **Python 3** — available on `PATH`
+- **Docker** — user must have permission to run it without `sudo`
+
+Docker can be installed automatically on Ubuntu/Debian:
+
+```sh
+$ python automate_builds.py --install-docker
+$ newgrp docker   # or log out and back in
+```
+
+Verify with: `docker ps` (should produce no permission errors).
+
+> The script and `Dockerfile` must be in the same directory. This is automatically
+> satisfied when you clone `https://github.com/Embeetle/automate_builds.git`.
+
+### Quick start
+
+**Standard build** (for anyone):
+
+```sh
+# Only needed once if Docker isn't installed yet:
+$ python automate_builds.py --install-docker
+$ newgrp docker
+
+# Full build:
+$ python automate_builds.py --all
+```
+
+Clones all repos, builds the Docker image, and builds LLVM, SA, and Embeetle inside
+Docker in one go. The resulting executable lands at:
+
+```
+~/bld/embeetle-linux-x86_64/embeetle
+```
+
+**Collaborator flow** (requires GitHub write access):
+
+```sh
+$ python automate_builds.py --check-access          # 1. verify token
+$ python automate_builds.py --inc-version           # 2. bump version
+$ python automate_builds.py --all                   # 3. full build
+$ python automate_builds.py --upload                # 4. publish release
+```
+
+### Default paths
+
+| Variable | Default |
+|---|---|
+| Repos | `~/embeetle`, `~/llvm`, `~/sa` |
+| Build output | `~/bld` |
+| Python venv | `/opt/venv` (baked into the Docker image) |
+
+### Output layout after `--all`
+
+```
+~/
+├── bld/
+│   ├── embeetle-linux-x86_64/      ← built IDE
+│   ├── embeetle-linux-x86_64.7z    ← release archive
+│   ├── llvm/
+│   └── sa/
+├── embeetle/
+├── llvm/
+└── sa/
+```
+
+### Running Embeetle
+
+**From the executable:**
+
+Navigate to `~/bld/embeetle-linux-x86_64/` and launch the `embeetle` binary.
+
+**From sources:**
+
+```sh
+$ cd ~/embeetle
+$ python -m venv .venv
+$ source .venv/bin/activate
+$ python -m pip install -r requirements.txt
+$ chmod +x run.sh
+$ ./run.sh
+```
+
+---
+
+## Build pipeline
+
+Both scripts follow the same pipeline:
+
+```
+--clone  →  --install-packages  →  --build-llvm  →  --build-sa  →  --install-sa  →  --build-embeetle
+```
+
+| Step | Windows | Linux |
+|---|---|---|
+| `--clone` | Clone/update repos on host | Clone/update repos on host |
+| `--install-packages` | Install MSYS2 packages | Build Docker image from Dockerfile |
+| `--build-llvm` | Build in MSYS2 UCRT64 | Build inside Docker container |
+| `--build-sa` | Build in MSYS2 UCRT64 | Build inside Docker container |
+| `--install-sa` | Mirror `bld/sa/sys-<PLATFORM>/` → `embeetle/sys/` | Same |
+| `--build-embeetle` | Build in MSYS2 UCRT64; creates `.venv` | Build inside Docker container |
+| `--all` | Run all steps above | Run all steps above (not `--install-docker`) |
+
+---
+
+## Collaborator flags
+
+These flags require write access to the GitHub repository and a valid GitHub token.
+
+| Flag | Description |
+|---|---|
+| `--check-access` | Verify the GitHub token grants write access. Exits 0 on success, 1 on failure. |
+| `--set-version x.y.z` | Write an explicit version to `version.txt` (checks no GitHub release with that tag exists yet). |
+| `--inc-version` | Auto-increment the patch number in `version.txt` (equivalent to `--set-version`). |
+| `--upload` | Upload `bld/embeetle-<PLATFORM>.7z` and `version.txt` to a GitHub Release for the current version. Creates the release if it doesn't exist; replaces existing assets with the same name. |
+
+---
+
+## Linux-only flags
+
+| Flag | Description |
+|---|---|
+| `--install-docker` | Install Docker on Ubuntu/Debian. Requires `sudo`. Run `newgrp docker` or log out/in after. |
+| `--clean-docker` | Stop and remove all Docker containers and images. |
+
+---
+
+## License
+
+Copyright © 2018-2026 Johan Cockx, Matic Kukovec & Kristof Mulier.
+Licensed under the GNU General Public License v3.0 or later — see the SPDX header
+in each script for details.
