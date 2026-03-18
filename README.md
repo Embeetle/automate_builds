@@ -25,6 +25,8 @@ automate_builds/
 
 ## WINDOWS
 
+> For a complete description, please run `python automate_builds.py --help` in the `windows-x86_64` folder. Below is just a concise overview.
+
 ### Prerequisites
 
 - **Git for Windows** — must be on `PATH` (`git --version` works in CMD)
@@ -60,16 +62,6 @@ Replace `<MSYS2_HOME>` with the MSYS2 home folder on your system (eg. `C:/msys64
 > python automate_builds.py --upload                # 4. publish release
 ```
 
-### Default paths
-
-| Variable | Default |
-|---|---|
-| MSYS2 root | `C:/msys64` |
-| Repos | `<MSYS2_HOME>/embeetle`, `<MSYS2_HOME>/llvm`, `<MSYS2_HOME>/sa` |
-| Build output | `<MSYS2_HOME>/bld` |
-| Python venv | `<MSYS2_HOME>/embeetle/.venv` |
-
-Override with `--msys-root`, `--embeetle-repo`, `--llvm-repo`, `--sa-repo`, `--output`.
 
 ### Output layout after `--all`
 
@@ -85,6 +77,8 @@ Override with `--msys-root`, `--embeetle-repo`, `--llvm-repo`, `--sa-repo`, `--o
   ├── llvm/
   └── sa/
 ```
+
+Override with `--msys-root`, `--embeetle-repo`, `--llvm-repo`, `--sa-repo`, `--output`.
 
 ### Running Embeetle
 
@@ -105,6 +99,8 @@ Navigate to `<MSYS2_HOME>/bld/embeetle-windows-x86_64/` and launch `embeetle.exe
 ---
 
 ## LINUX
+
+> For a complete description, please run `python automate_builds.py --help` in the `linux-x86_64` folder. Below is just a concise overview.
 
 ### Prerequisites
 
@@ -153,14 +149,6 @@ $ python automate_builds.py --all                   # 3. full build
 $ python automate_builds.py --upload                # 4. publish release
 ```
 
-### Default paths
-
-| Variable | Default |
-|---|---|
-| Repos | `~/embeetle`, `~/llvm`, `~/sa` |
-| Build output | `~/bld` |
-| Python venv | `/opt/venv` (baked into the Docker image) |
-
 ### Output layout after `--all`
 
 ```
@@ -196,21 +184,12 @@ $ ./run.sh
 
 ## Build pipeline
 
-Both scripts follow the same pipeline:
+Both scripts follow the same pipeline when you run the `--all` flag:
 
 ```
---clone  →  --install-packages  →  --build-llvm  →  --build-sa  →  --install-sa  →  --build-embeetle
+--clone (will just update the repo if it already exists)  →  --install-packages (or creat Docker image on Linux)  →  --build-llvm  →  --build-sa  →  --install-sa  →  --build-embeetle
 ```
 
-| Step | Windows | Linux |
-|---|---|---|
-| `--clone` | Clone/update repos on host | Clone/update repos on host |
-| `--install-packages` | Install MSYS2 packages | Build Docker image from Dockerfile |
-| `--build-llvm` | Build in MSYS2 UCRT64 | Build inside Docker container |
-| `--build-sa` | Build in MSYS2 UCRT64 | Build inside Docker container |
-| `--install-sa` | Mirror `bld/sa/sys-<PLATFORM>/` → `embeetle/sys/` | Same |
-| `--build-embeetle` | Build in MSYS2 UCRT64; creates `.venv` | Build inside Docker container |
-| `--all` | Run all steps above | Run all steps above (not `--install-docker`) |
 
 ---
 
