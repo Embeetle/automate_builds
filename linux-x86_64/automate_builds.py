@@ -978,7 +978,7 @@ def build_embeetle() -> None:
     req_file = EMBEETLE_REPO / "requirements.txt"
     assert req_file.exists()
     pip_cmd = "pip install --no-cache-dir -r requirements.txt"
-    build_cmd = f"python build.py --repo /root/embeetle --output {embeetle_bld_in_docker}"
+    build_cmd = f"python build.py --auto --repo /root/embeetle --output {embeetle_bld_in_docker}"
     update_cmd = "python /root/bld/update_version.py"
     docker_build_cmd = f"{pip_cmd} && {build_cmd} && {update_cmd}"
     run_in_docker(docker_build_cmd, working_dir_in_container="/root/embeetle")

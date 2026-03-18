@@ -1142,6 +1142,7 @@ def build_embeetle() -> None:
         [
             str(venv_python),
             "build.py",
+            "--auto",
             "--repo",
             str(EMBEETLE_REPO).replace("\\", "/"),
             "--output",
