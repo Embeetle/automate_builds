@@ -1,12 +1,15 @@
 # Embeetle Build Automation
 
-This repository provides build automation scripts to build Embeetle and all its components:
+This repository contains a build automation script (one for Windows, one for Linux) to build Embeetle and all its components:
 
 - [**Embeetle**](https://github.com/Embeetle/embeetle) — IDE for developing embedded C/C++ projects
 - [**LLVM**](https://github.com/Embeetle/llvm) — compiler infrastructure used by Embeetle
 - [**SA**](https://github.com/Embeetle/sa) — Source code Analyzer, whose output is bundled into Embeetle
 
-To build Embeetle on Windows 10/11, you need the build script at `windows-x86_64/automate_builds.py`. For Linux you need the one at `linux-x86_64/automate_builds.py`.
+The build automation script goes through the entire pipeline:
+- clone the repos `embeetle`, `llvm` and `sa`
+- build them
+- merge the result in `~/bld/`
 
 ---
 
@@ -38,6 +41,8 @@ automate_builds/
 
 ### Quick start
 
+Please note that `<MSYS2_HOME>` is used as placeholder for the `MSYS2` home folder on your system, eg. `C:/msys64/home/krist`.
+
 **Standard build** (for anyone):
 
 ```cmd
@@ -51,19 +56,19 @@ one go. The resulting executable lands at:
 <MSYS2_HOME>/bld/embeetle-windows-x86_64/embeetle.exe
 ```
 
-Replace `<MSYS2_HOME>` with the MSYS2 home folder on your system (eg. `C:/msys64/home/krist`)
-
 **Collaborator flow** (requires GitHub write access):
 
 ```cmd
-> python automate_builds.py --check-access          # 1. verify token
-> python automate_builds.py --inc-version           # 2. bump version
-> python automate_builds.py --all                   # 3. full build
-> python automate_builds.py --upload                # 4. publish release
+> python automate_builds.py --check-access  # 1. verify token
+> python automate_builds.py --inc-version   # 2. bump version (or use --set-version x.y.z)
+> python automate_builds.py --all           # 3. full build
+> python automate_builds.py --upload        # 4. publish release on GitHub
 ```
 
 
 ### Output layout after `--all`
+
+This is what you get with the default settings:
 
 ```
 <MSYS2_HOME>/
@@ -78,7 +83,18 @@ Replace `<MSYS2_HOME>` with the MSYS2 home folder on your system (eg. `C:/msys64
   └── sa/
 ```
 
-Override with `--msys-root`, `--embeetle-repo`, `--llvm-repo`, `--sa-repo`, `--output`.
+You can override the paths with:
+
+- `--msys-root`: If you didn't place `MSYS2` at `C:/msys64`, use the `--msys-root` parameter to tell the script where to find `MSYS2`
+
+- `--embeetle-repo`: If you want another location for the `embeetle` repo
+
+- `--llvm-repo`: If you want another location for the `llvm` repo
+
+- `--sa-repo`: If you want another location for the `sa` repo
+
+- `--output`: If you want another location for the build output
+
 
 ### Running Embeetle
 
@@ -89,12 +105,19 @@ Navigate to `<MSYS2_HOME>/bld/embeetle-windows-x86_64/` and launch `embeetle.exe
 **From sources:**
 
 ```cmd
+# Open a native(!) Windows CMD terminal and navigate to the repo:
 > cd <MSYS2_HOME>/embeetle
+
+# If a .venv subfolder doesn't exist yet, create and populate it:
 > python -m venv .venv
 > call .venv/Scripts/activate.bat
 > python -m pip install -r requirements.txt
+
+# Launch Embeetle:
 > run.cmd
 ```
+
+Next time, you can simply launch Embeetle with `run.cmd`. The script finds the python venv, activates it and then launches the IDE.
 
 ---
 
@@ -133,7 +156,7 @@ $ newgrp docker
 $ python automate_builds.py --all
 ```
 
-Clones all repos, builds the Docker image, and builds LLVM, SA, and Embeetle inside
+Clones all repos, builds the Docker image, and builds `llvm`, `sa`, and `embeetle` inside
 Docker in one go. The resulting executable lands at:
 
 ```
@@ -172,46 +195,20 @@ Navigate to `~/bld/embeetle-linux-x86_64/` and launch the `embeetle` binary.
 **From sources:**
 
 ```sh
+# Navigate into the embeetle repo:
 $ cd ~/embeetle
+
+# If a .venv subfolder doesn't exist yet, create and populate it:
 $ python -m venv .venv
 $ source .venv/bin/activate
 $ python -m pip install -r requirements.txt
+
+# Launch Embeetle:
 $ chmod +x run.sh
 $ ./run.sh
 ```
 
----
-
-## Build pipeline
-
-Both scripts follow the same pipeline when you run the `--all` flag:
-
-```
---clone (will just update the repo if it already exists)  →  --install-packages (or creat Docker image on Linux)  →  --build-llvm  →  --build-sa  →  --install-sa  →  --build-embeetle
-```
-
-
----
-
-## Collaborator flags
-
-These flags require write access to the GitHub repository and a valid GitHub token.
-
-| Flag | Description |
-|---|---|
-| `--check-access` | Verify the GitHub token grants write access. Exits 0 on success, 1 on failure. |
-| `--set-version x.y.z` | Write an explicit version to `version.txt` (checks no GitHub release with that tag exists yet). |
-| `--inc-version` | Auto-increment the patch number in `version.txt` (equivalent to `--set-version`). |
-| `--upload` | Upload `bld/embeetle-<PLATFORM>.7z` and `version.txt` to a GitHub Release for the current version. Creates the release if it doesn't exist; replaces existing assets with the same name. |
-
----
-
-## Linux-only flags
-
-| Flag | Description |
-|---|---|
-| `--install-docker` | Install Docker on Ubuntu/Debian. Requires `sudo`. Run `newgrp docker` or log out/in after. |
-| `--clean-docker` | Stop and remove all Docker containers and images. |
+Next time, you can simply launch Embeetle with `run.sh`. The script finds the python venv, activates it and then launches the IDE.
 
 ---
 
