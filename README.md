@@ -2,9 +2,9 @@
 
 This repository provides build automation scripts to build Embeetle and all its components:
 
-- **Embeetle** — IDE for developing embedded C/C++ projects
-- **LLVM** — compiler infrastructure used by Embeetle
-- **SA** — Source code Analyzer, whose output is bundled into Embeetle
+- [**Embeetle**](https://github.com/Embeetle/embeetle) — IDE for developing embedded C/C++ projects
+- [**LLVM**](https://github.com/Embeetle/llvm) — compiler infrastructure used by Embeetle
+- [**SA**](https://github.com/Embeetle/sa) — Source code Analyzer, whose output is bundled into Embeetle
 
 To build Embeetle on Windows 10/11, you need the build script at `windows-x86_64/automate_builds.py`. For Linux you need the one at `linux-x86_64/automate_builds.py`.
 
