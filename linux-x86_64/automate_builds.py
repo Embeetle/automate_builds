@@ -352,7 +352,12 @@ def check_git_lfs_ready() -> None:
     if shutil.which("git-lfs") is None:
         printc("\nERROR: git-lfs is not installed.", fg="bright_red", bold=True)
         printc("Please install it first:", fg="bright_yellow")
+        printc("    # Debian / Ubuntu / Mint:", fg="bright_green")
         printc("    $ sudo apt install git-lfs", fg="bright_cyan")
+        printc("    # Fedora / Red Hat:", fg="bright_green")
+        printc("    $ sudo dnf install git-lfs", fg="bright_cyan")
+        printc("    # Arch / Manjaro:", fg="bright_green")
+        printc("    $ sudo pacman -S git-lfs", fg="bright_cyan")
         raise SystemExit(1)
     # Set up LFS hooks globally (idempotent)
     run_native(["git", "lfs", "install"], check=False)
