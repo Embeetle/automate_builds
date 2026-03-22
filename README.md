@@ -33,7 +33,7 @@ automate_builds/
 ### Prerequisites
 
 - **Git for Windows** — must be on `PATH` (`git --version` works in CMD)
-- **Python 3.14+** — must be on `PATH` (`python --version` works in CMD)
+- **Python 3.12+** — must be on `PATH` (`python --version` works in CMD)
 - **MSYS2** — preferably installed at `C:/msys64`
 
 > **Important:** Run the script from a native Windows CMD shell, not from an MSYS2
@@ -45,8 +45,8 @@ Please note that `<MSYS2_HOME>` is used as placeholder for the `MSYS2` home fold
 
 **Standard build** (for anyone):
 
-```cmd
-> python automate_builds.py --all
+```bat
+python automate_builds.py --all
 ```
 
 Clones all repos, installs MSYS2 packages, and builds LLVM, SA, and Embeetle in
@@ -58,11 +58,18 @@ one go. The resulting executable lands at:
 
 **Collaborator flow** (requires GitHub write access):
 
-```cmd
-> python automate_builds.py --check-access  # 1. verify token
-> python automate_builds.py --inc-version   # 2. bump version (or use --set-version x.y.z)
-> python automate_builds.py --all           # 3. full build
-> python automate_builds.py --upload        # 4. publish release on GitHub
+```bat
+:: 1. Verify token
+python automate_builds.py --check-access
+
+:: 2. Bump version (or use --set-version x.y.z)
+python automate_builds.py --inc-version
+
+:: 3. Full build
+python automate_builds.py --all
+
+:: 4. Publish release on GitHub
+python automate_builds.py --upload
 ```
 
 
@@ -102,22 +109,64 @@ You can override the paths with:
 
 Navigate to `<MSYS2_HOME>/bld/embeetle-windows-x86_64/` and launch `embeetle.exe`.
 
-**From sources:**
+**From sources (Windows CMD):**
 
-```cmd
-# Open a native(!) Windows CMD terminal and navigate to the repo:
-> cd <MSYS2_HOME>/embeetle
+Open a CMD terminal. Move into the repo at `<MSYS2_HOME>/embeetle`:
 
-# If a .venv subfolder doesn't exist yet, create and populate it:
-> python -m venv .venv
-> call .venv/Scripts/activate.bat
-> python -m pip install -r requirements.txt
-
-# Launch Embeetle:
-> run.cmd
+```bat
+cd embeetle
 ```
 
-Next time, you can simply launch Embeetle with `run.cmd`. The script finds the python venv, activates it and then launches the IDE.
+Create and activate a Python virtual environment, then install dependencies:
+
+```bat
+python -m venv .venv
+call .venv\Scripts\activate.bat
+python -m pip install -r requirements.txt
+```
+
+Run Embeetle:
+
+```bat
+run.cmd
+```
+
+The first time you run Embeetle, it downloads the required tools (such as the source analyzer, 7zip, ...). Wait a few minutes.
+
+From now onwards you can simply launch `run.cmd`. It searches for a Python virtual environment in `.venv/`, activates it, then launches Embeetle.
+
+**From sources (Windows PowerShell)**
+
+Open a PowerShell terminal. Move into the repo at `<MSYS2_HOME>/embeetle`:
+
+```powershell
+cd embeetle
+```
+
+Create and activate a Python virtual environment, then install dependencies:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+```
+
+> **Note:** If you get a script execution error on the activation step, run this first:
+> ```powershell
+> Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+> ```
+
+Run Embeetle:
+
+```powershell
+.\run.ps1
+```
+
+The first time you run Embeetle, it downloads the required tools (such as the source analyzer, 7zip, ...). Wait a few minutes.
+
+From now onwards you can simply launch `run.ps1`. It searches for a Python virtual environment in `.venv/`, activates it, then launches Embeetle.
+
+
 
 ---
 
@@ -128,14 +177,14 @@ Next time, you can simply launch Embeetle with `run.cmd`. The script finds the p
 ### Prerequisites
 
 - **Git** — available on `PATH`
-- **Python 3** — available on `PATH`
+- **Python 3.12+** — available on `PATH`
 - **Docker** — user must have permission to run it without `sudo`
 
 Docker can be installed automatically on Ubuntu/Debian:
 
 ```sh
-$ python automate_builds.py --install-docker
-$ newgrp docker   # or log out and back in
+python automate_builds.py --install-docker
+newgrp docker
 ```
 
 Verify with: `docker ps` (should produce no permission errors).
@@ -149,11 +198,11 @@ Verify with: `docker ps` (should produce no permission errors).
 
 ```sh
 # Only needed once if Docker isn't installed yet:
-$ python automate_builds.py --install-docker
-$ newgrp docker
+python automate_builds.py --install-docker
+newgrp docker
 
 # Full build:
-$ python automate_builds.py --all
+python automate_builds.py --all
 ```
 
 Clones all repos, builds the Docker image, and builds `llvm`, `sa`, and `embeetle` inside
@@ -166,10 +215,17 @@ Docker in one go. The resulting executable lands at:
 **Collaborator flow** (requires GitHub write access):
 
 ```sh
-$ python automate_builds.py --check-access          # 1. verify token
-$ python automate_builds.py --inc-version           # 2. bump version
-$ python automate_builds.py --all                   # 3. full build
-$ python automate_builds.py --upload                # 4. publish release
+# 1. Verify token
+python automate_builds.py --check-access
+
+# 2. Bump version (or use --set-version x.y.z)
+python automate_builds.py --inc-version
+
+# 3. Full build
+python automate_builds.py --all
+
+# 4. Publish release on GitHub
+python automate_builds.py --upload
 ```
 
 ### Output layout after `--all`
@@ -194,21 +250,58 @@ Navigate to `~/bld/embeetle-linux-x86_64/` and launch the `embeetle` binary.
 
 **From sources:**
 
-```sh
-# Navigate into the embeetle repo:
-$ cd ~/embeetle
+Open a terminal. Move into the `embeetle` repository:
 
-# If a .venv subfolder doesn't exist yet, create and populate it:
-$ python -m venv .venv
-$ source .venv/bin/activate
-$ python -m pip install -r requirements.txt
-
-# Launch Embeetle:
-$ chmod +x run.sh
-$ ./run.sh
+```bash
+cd ~/embeetle
 ```
 
-Next time, you can simply launch Embeetle with `run.sh`. The script finds the python venv, activates it and then launches the IDE.
+Create and activate a Python virtual environment, then install dependencies:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r requirements.txt
+```
+
+> **Note:** If `python3 -m venv .venv` fails, install the venv package first:
+> ```bash
+> sudo apt install python3-venv
+> ```
+
+Make the run script executable and launch Embeetle:
+
+```bash
+chmod +x run.sh
+./run.sh
+```
+
+The first time you run Embeetle, it downloads the required tools (such as the source analyzer, 7zip, ...). Wait a few minutes.
+
+From now onwards, you can simply launch `run.sh`. It searches for a Python virtual environment in `.venv/`, activates it, then launches Embeetle.
+
+> **Troubleshooting (Linux):** If Embeetle fails to start with an error like
+> `Could not load the Qt platform plugin "xcb"`, Embeetle normally handles this
+> automatically by bundling `libxcb-cursor.so.0` in its `sys/lib` directory and
+> setting `LD_LIBRARY_PATH` at startup. If for some reason that mechanism doesn't
+> work on your system, install the library manually as a last resort.
+>
+> Debian / Ubuntu / Mint:
+> ```bash
+> sudo apt install libxcb-cursor0
+> ```
+> Fedora / Red Hat:
+> ```bash
+> sudo dnf install xcb-util-cursor
+> ```
+> Arch / Manjaro:
+> ```bash
+> sudo pacman -S xcb-util-cursor
+> ```
+> openSUSE:
+> ```bash
+> sudo zypper install xcb-util-cursor
+> ```
 
 ---
 
