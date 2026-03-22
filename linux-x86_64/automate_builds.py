@@ -225,12 +225,12 @@ def printc(*args, fg: Optional[str] = None, bold: bool = False, **kwargs) -> Non
     return print(c(text, fg=fg, bold=bold), **kwargs)
 
 
-def run_native(args: list[str], cwd: Optional[Path] = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+def run_native(args: list[str], cwd: Optional[Path] = None, check: bool = True, env: Optional[dict] = None) -> subprocess.CompletedProcess[str]:
     """Run a command natively on the Linux host."""
     cmd_str = " ".join(args)
     print(f"\n[HOST] {cmd_str}")
     try:
-        return subprocess.run(args, cwd=str(cwd) if cwd else None, check=check, text=True)
+        return subprocess.run(args, cwd=str(cwd) if cwd else None, check=check, text=True, env=env)
     except subprocess.CalledProcessError as e:
         printc(
             f"\nERROR: Command failed with exit code {e.returncode} (see output above).\n"
@@ -386,7 +386,10 @@ def clone_or_update_repo(repo_url: str, repo_dir: Path) -> None:
 
     if not repo_dir.exists():
         print(f"\n==> Cloning {repo_dir}...")
-        run_native(["git", "clone", "-c", "core.autocrlf=false", repo_url, str(repo_dir)], cwd=repo_parent_dir)
+        # GIT_CLONE_PROTECTION_ACTIVE=false allows post-checkout hooks to run
+        # during clone (blocked by default since Git 2.38 for security).
+        clone_env = {**os.environ, "GIT_CLONE_PROTECTION_ACTIVE": "false"}
+        run_native(["git", "clone", "-c", "core.autocrlf=false", repo_url, str(repo_dir)], cwd=repo_parent_dir, env=clone_env)
         run_native(["git", "-C", str(repo_dir), "lfs", "pull"])
         return
 

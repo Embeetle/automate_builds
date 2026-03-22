@@ -358,6 +358,7 @@ def run_native(
     args: list[str],
     cwd: Optional[Path] = None,
     check: bool = True,
+    env: Optional[dict] = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a command natively on Windows (no shell), streaming output."""
     def fmt_cmd(args: Iterable[str]) -> str:
@@ -374,6 +375,7 @@ def run_native(
         cwd=str(cwd) if cwd else None,
         check=check,
         text=True,
+        env=env,
     )
 
 
@@ -535,8 +537,11 @@ def clone_or_update_repo(
     # Clone
     if not repo_dir.exists():
         print(f"\n==> Cloning {repo_dir}...")
-        # Add the -c flag here to force LF endings for this specific repo
-        run_native(["git", "clone", "-c", "core.autocrlf=false", repo_url, str(repo_dir)], cwd=repo_parent_dir)
+        # Add the -c flag here to force LF endings for this specific repo.
+        # GIT_CLONE_PROTECTION_ACTIVE=false allows post-checkout hooks to run
+        # during clone (blocked by default since Git 2.38 for security).
+        clone_env = {**os.environ, "GIT_CLONE_PROTECTION_ACTIVE": "false"}
+        run_native(["git", "clone", "-c", "core.autocrlf=false", repo_url, str(repo_dir)], cwd=repo_parent_dir, env=clone_env)
         run_native(["git", "-C", str(repo_dir), "lfs", "pull"])
         return
 
