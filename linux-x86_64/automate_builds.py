@@ -720,8 +720,17 @@ def mirror_dir(
     return
 
 
-def install_sa_sys_into_embeetle_sys() -> None:
-    """Copy Linux SA build outputs on the host."""
+def install_sa_sys_into_embeetle_sys(delete: bool = False) -> None:
+    """Copy Linux SA build outputs on the host.
+
+    delete=False (default): merge SA files on top of existing sys/ contents.
+        Use this for standalone --install-sa so the ~100 original .so files
+        remain and Embeetle can still be run directly from sources.
+    delete=True: wipe files in the destination that aren't in the SA output.
+        Use this when --all is running, because --build-embeetle will
+        subsequently restore the full set of .so files via fix_shared_objects.sh
+        and then mirror bld/embeetle/sys back into embeetle/sys.
+    """
     assert BUILD_DIR and EMBEETLE_REPO
 
     src_sys: Path = BUILD_DIR / f"sa/sys-{PLATFORM}"
@@ -735,9 +744,9 @@ def install_sa_sys_into_embeetle_sys() -> None:
         )
 
     print(f"\n==> Installing SA sys overlay:")
-    mirror_dir(src=src_sys, dst=dst_sys, delete=False)
+    mirror_dir(src=src_sys, dst=dst_sys, delete=delete)
     if dst2_sys.is_dir():
-        mirror_dir(src=src_sys, dst=dst2_sys, delete=False)
+        mirror_dir(src=src_sys, dst=dst2_sys, delete=delete)
 
     src_esa: Path = src_sys / "esa"
     dst_esa: Path = dst_sys / "esa"
@@ -1649,6 +1658,13 @@ def main() -> int:
         clone_or_update_repo("https://github.com/Embeetle/embeetle.git", EMBEETLE_REPO)
         clone_or_update_repo("https://github.com/Embeetle/llvm.git", LLVM_REPO)
         clone_or_update_repo("https://github.com/Embeetle/sa.git", SA_REPO)
+        # SYS_REPO is a managed directory: the build process overwrites its contents
+        # (back-mirror from bld/embeetle/sys after --build-embeetle). Force-reset it
+        # before pulling so local modifications don't block the pull.
+        if (SYS_REPO / ".git").is_dir():
+            print(f"\n==> Resetting {SYS_REPO} to remote state...")
+            run_native(["git", "-C", str(SYS_REPO), "reset", "--hard", "HEAD"])
+            run_native(["git", "-C", str(SYS_REPO), "clean", "-fd"])
         # Note the change to sys-<PLATFORM>
         clone_or_update_repo(f"https://github.com/Embeetle/sys-{PLATFORM}.git", SYS_REPO)
         fix_sys_permissions(SYS_REPO)
@@ -1675,13 +1691,21 @@ def main() -> int:
     if args.install_sa or args.all:
         printc("\nINSTALL SA", fg="bright_blue")
         printc("==========", fg="bright_blue")
-        install_sa_sys_into_embeetle_sys()
+        install_sa_sys_into_embeetle_sys(delete=args.all)
         print("\nInstalled SA sys into Embeetle sys.")
 
     if args.build_embeetle or args.all:
         printc("\nBUILD EMBEETLE", fg="bright_blue")
         printc("==============", fg="bright_blue")
         build_embeetle()
+        if args.all:
+            # Restore ~/embeetle/sys from the build output, which now contains
+            # the full set of .so files (SA outputs + cherry-picked Docker libs).
+            embeetle_bld_sys: Path = BUILD_DIR / f"embeetle-{PLATFORM}/sys"
+            if embeetle_bld_sys.is_dir():
+                printc("\n==> Syncing build sys back into embeetle repo sys...", fg="bright_blue")
+                mirror_dir(src=embeetle_bld_sys, dst=EMBEETLE_REPO / "sys", delete=True)
+                fix_sys_permissions(EMBEETLE_REPO / "sys")
 
     if args.set_version:
         printc("\nSET VERSION", fg="bright_blue")
