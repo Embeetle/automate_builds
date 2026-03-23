@@ -37,6 +37,15 @@ import urllib.request
 import urllib.error
 from datetime import datetime
 
+if sys.version_info < (3, 12):
+    print(
+        f"ERROR: Python 3.12 or higher is required to run Embeetle.\n"
+        f"       You are running Python "
+        f"{sys.version_info.major}.{sys.version_info.minor}.\n"
+        f"       Please upgrade your Python installation."
+    )
+    sys.exit(1)
+
 # =============================================================================
 # GLOBAL PATHS
 # =============================================================================
@@ -454,14 +463,21 @@ def check_docker_ready() -> None:
         printc("Or, completely log out and log back into your desktop environment.")
         raise SystemExit(1)
     
-    # 2. Check if the daemon is reachable (this catches the 'newgrp docker' issue)
+    # 2. Check if the daemon is reachable (this catches missing group membership)
     result = subprocess.run(["docker", "info"], capture_output=True, text=True)
     if result.returncode != 0:
         printc("\nERROR: Cannot connect to the Docker daemon.", fg="bright_red", bold=True)
-        printc("If you just installed Docker, your user permissions haven't refreshed yet.", fg="bright_yellow")
-        printc("Please run this command and try again:")
+        printc("This usually means your user is not in the 'docker' group yet.", fg="bright_yellow")
+        printc("Run the following, then log out and back in (or open a new terminal):")
+        printc("    $ sudo usermod -aG docker $USER", fg="bright_cyan", bold=True)
+        print("")
+        printc("After logging back in, 'newgrp docker' should work without asking for a password:")
         printc("    $ newgrp docker", fg="bright_cyan", bold=True)
-        printc("Or verify the daemon is running: $ sudo systemctl start docker")
+        print("")
+        printc("Note: if 'newgrp docker' asks for a password, it means you're not in the group yet —")
+        printc("      run the usermod command above first.")
+        printc("If the daemon itself isn't running:")
+        printc("    $ sudo systemctl start docker", fg="bright_cyan", bold=True)
         raise SystemExit(1)
     return
 
@@ -481,6 +497,9 @@ def install_docker_ubuntu() -> None:
     if not _is_ubuntu_or_debian():
         printc("\nERROR: The automatic Docker installation only supports Ubuntu/Debian-based systems.", fg="bright_red")
         printc("Please install Docker manually according to your Linux distribution's official documentation.", fg="bright_yellow")
+        printc("If Docker is already installed, skip this step. Just run:", fg="bright_yellow")
+        printc("    $ newgrp docker", fg="bright_cyan", bold=True)
+        printc("or log out and back in to refresh group permissions, then proceed with --all.", fg="bright_yellow")
         raise SystemExit(1)
 
     printc("\n==> Installing Docker (you may be prompted for your sudo password)...", fg="bright_blue")

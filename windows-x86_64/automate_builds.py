@@ -36,6 +36,15 @@ import atexit
 import urllib.request
 import urllib.error
 
+if sys.version_info < (3, 12):
+    print(
+        f"ERROR: Python 3.12 or higher is required to run Embeetle.\n"
+        f"       You are running Python "
+        f"{sys.version_info.major}.{sys.version_info.minor}.\n"
+        f"       Please upgrade your Python installation."
+    )
+    sys.exit(1)
+
 MSYS2_ROOT: Path = Path("C:/msys64")
 MSYS2_HOME: Optional[Path] = None     # eg. 'C:/msys64/home/krist'
 EMBEETLE_REPO: Optional[Path] = None  # eg. 'C:/msys64/home/krist/embeetle'
