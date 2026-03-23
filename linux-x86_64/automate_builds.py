@@ -600,9 +600,21 @@ def clean_docker() -> None:
 def build_docker_image() -> None:
     """Build the Docker image from the Dockerfile."""
     if not DOCKERFILE_DIR.exists() or not (DOCKERFILE_DIR / "Dockerfile").exists():
-        raise FileNotFoundError(
-            f"Dockerfile not found at {DOCKERFILE_DIR}/Dockerfile"
+        printc(
+            f"\nERROR: Dockerfile not found at {DOCKERFILE_DIR}/Dockerfile\n"
+            f"\n"
+            f"The Dockerfile must be placed next to the automate_builds.py script.\n"
+            f"If you cloned the full 'automate_builds' repository, both files should\n"
+            f"already be present side by side. If you downloaded automate_builds.py\n"
+            f"standalone, you also need to download the Dockerfile and place it in\n"
+            f"the same directory:\n"
+            f"\n"
+            f"  {DOCKERFILE_DIR}/\n"
+            f"  ├── automate_builds.py\n"
+            f"  └── Dockerfile          <-- missing!\n",
+            fg="bright_red", bold=True
         )
+        sys.exit(1)
     
     print(f"\n==> Building Docker Image '{DOCKER_IMAGE_NAME}'...")
     run_native(
